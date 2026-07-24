@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0d1b4b">
+<meta name="mobile-web-app-capable" content="yes">
+<title>TIM Business CRM</title>
+<link rel="manifest" href="manifest.json">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'DM Sans','Segoe UI',sans-serif;background:#f4f6f9;min-height:100vh;color:#1a1f2e}
+input,select,textarea,button{font-family:inherit}
+button{cursor:pointer}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useCallback}=React;
+
+const STORAGE_KEY='tim_crm_v2';
+const SESSION_KEY='tim_session';
+
+/* ── AUTH HELPERS ─────────────────────────────── */
+function getSession(){try{return JSON.parse(localStorage.getItem(SESSION_KEY))||null}catch{return null}}
+function setSession(s){localStorage.setItem(SESSION_KEY,JSON.stringify(s))}
+function clearSession(){localStorage.removeItem(SESSION_KEY)}
+
+async function apiLogin(username,password){
+  const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+  return r.json();
+}
+
+/* ── CRM DATA ─────────────────────────────────── */
+const DEFAULT_CLIENTS=[
+  {id:1,name:"Rossi SRL",contact:"Mario Rossi",phone:"333 1234567",products:["Fibra Business","Mobile x5"],contractStart:"2022-03-10",contractEnd:"2025-03-10",retiFisse:1,retiMobili:5,centralino:false,trunk:false,notes:"Soddisfatto, possibile upsell cloud",churnRisk:"basso"},
+  {id:2,name:"Studio Bianchi",contact:"Luca Bianchi",phone:"347 9876543",products:["ADSL Business"],contractStart:"2023-06-01",contractEnd:"2025-06-01",retiFisse:1,retiMobili:0,centralino:false,trunk:false,notes:"Ha chiesto info su fibra",churnRisk:"medio"},
+  {id:3,name:"Ferri & C.",contact:"Anna Ferri",phone:"328 5554433",products:["Fibra Business","VoIP"],contractStart:"2021-01-15",contractEnd:"2024-06-20",retiFisse:2,retiMobili:3,centralino:true,trunk:true,notes:"Insoddisfatto assistenza tecnica",churnRisk:"alto"},
+];
+const PRODUCTS=["Fibra Business","ADSL Business","Mobile x1","Mobile x3","Mobile x5","Mobile x10","VoIP","Cloud PBX","Microsoft 365","Cybersecurity","SD-WAN","Energia"];
+const RISK={basso:{color:"#22c55e",bg:"#f0fdf4",label:"Basso"},medio:{color:"#f59e0b",bg:"#fffbeb",label:"Medio"},alto:{color:"#ef4444",bg:"#fef2f2",label:"Alto"}};
+const EMPTY={name:"",contact:"",phone:"",products:[],contractStart:"",contractEnd:"",retiFisse:0,retiMobili:0,centralino:false,trunk:false,notes:"",churnRisk:"basso"};
+
+function daysUntil(d){return Math.ceil((new Date(d)-new Date())/86400000)}
+function yearsActive(d){if(!d)return null;return(new Date()-new Date(d))/(86400000*365)}
+function fmt(d){if(!d)return"—";return new Date(d).toLocaleDateString("it-IT",{day:"2-digit",month:"short",year:"numeric"})}
+function fmtTime(d){if(!d)return"—";return new Date(d).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}
+function todayStr(){return new Date().toISOString().split("T")[0]}
+function loadClients(){try{const s=localStorage.getItem(STORAGE_KEY);return s?JSON.parse(s):DEFAULT_CLIENTS}catch{return DEFAULT_CLIENTS}}
+function saveClients(c){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(c))}catch{}}
+
+/* ── STYLES ───────────────────────────────────── */
+const S={
+  app:{fontFamily:"'DM Sans','Segoe UI',sans-serif",background:"#f4f6f9",minHeight:"100vh"},
+  hdr:{background:"#0d1b4b",color:"#fff",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 8px rgba(0,0,0,.2)"},
+  wrap:{padding:"16px",maxWidth:960,margin:"0 auto"},
+  card:{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,.07)",marginBottom:12},
+  inp:{padding:"9px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:13,outline:"none",width:"100%",background:"#fff"},
+  sel:{padding:"8px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"#fff",cursor:"pointer",color:"#1a1f2e",width:"100%"},
+  lbl:{fontSize:11,fontWeight:600,color:"#475569",marginBottom:4,display:"block"},
+  nb:(a)=>({padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,background:a?"#3b82f6":"rgba(255,255,255,.12)",color:"#fff"}),
+  btn:(v)=>({padding:v==="sm"?"5px 10px":v==="lg"?"12px 20px":"9px 16px",borderRadius:8,border:"none",cursor:"pointer",fontSize:v==="sm"?12:13,fontWeight:700}),
+  pri:{background:"#3b82f6",color:"#fff"},
+  suc:{background:"#22c55e",color:"#fff"},
+  dan:{background:"#fee2e2",color:"#ef4444"},
+  gho:{background:"transparent",color:"#64748b"},
+  tbl:{width:"100%",borderCollapse:"collapse"},
+  th:{textAlign:"left",fontSize:10,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:".05em",padding:"6px 8px",borderBottom:"2px solid #f1f5f9"},
+  td:{padding:"10px 8px",borderBottom:"1px solid #f8fafc",verticalAlign:"middle",fontSize:13},
+  yn:(v)=>({fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:v?"#f0fdf4":"#f8fafc",color:v?"#22c55e":"#94a3b8"}),
+  badge:(r)=>({fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:RISK[r]?.bg||"#f1f5f9",color:RISK[r]?.color||"#64748b"}),
+  toast:(t)=>({position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",background:t==="err"?"#ef4444":"#22c55e",color:"#fff",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,zIndex:999,boxShadow:"0 4px 12px rgba(0,0,0,.2)",whiteSpace:"nowrap"}),
+};
+
+/* ── LOGIN SCREEN ─────────────────────────────── */
+function LoginScreen({onLogin}){
+  const [username,setUsername]=useState('');
+  const [password,setPassword]=useState('');
+  const [showPass,setShowPass]=useState(false);
+  const [err,setErr]=useState('');
+  const [busy,setBusy]=useState(false);
+
+  const go=async(e)=>{
+    e&&e.preventDefault();
+    if(!username||!password)return setErr('Inserisci username e password');
+    setBusy(true);setErr('');
+    try{
+      const res=await apiLogin(username,password);
+      if(res.ok){
+        setSession({role:res.role,name:res.name});
+        onLogin(res.role,res.name);
+      } else {
+        setErr('Credenziali non valide');
+      }
+    }catch{
+      setErr('Errore di connessione');
+    }
+    setBusy(false);
+  };
+
+  return(
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0d1b4b 0%,#1e3a8a 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{background:'#fff',borderRadius:20,padding:'40px 32px',width:'100%',maxWidth:380,boxShadow:'0 24px 80px rgba(0,0,0,.35)'}}>
+        <div style={{textAlign:'center',marginBottom:32}}>
+          <div style={{width:64,height:64,background:'linear-gradient(135deg,#0d1b4b,#3b82f6)',borderRadius:18,display:'flex',alignItems:'center',justifyContent:'center',fontSize:30,margin:'0 auto 16px',boxShadow:'0 8px 24px rgba(59,130,246,.3)'}}>📱</div>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#0d1b4b',marginBottom:4}}>TIM Business</h1>
+          <p style={{fontSize:13,color:'#64748b'}}>Accedi al tuo account</p>
+        </div>
+
+        <form onSubmit={go}>
+          <div style={{marginBottom:14}}>
+            <label style={S.lbl}>Username</label>
+            <input
+              style={{...S.inp,fontSize:14}}
+              type="text"
+              value={username}
+              onChange={e=>setUsername(e.target.value)}
+              placeholder="es. christopher"
+              autoComplete="username"
+              autoFocus
+            />
+          </div>
+          <div style={{marginBottom:6}}>
+            <label style={S.lbl}>Password</label>
+            <div style={{position:'relative'}}>
+              <input
+                style={{...S.inp,fontSize:14,paddingRight:44}}
+                type={showPass?'text':'password'}
+                value={password}
+                onChange={e=>setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+              />
+              <button type="button" onClick={()=>setShowPass(s=>!s)} style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',fontSize:16,color:'#94a3b8'}}>
+                {showPass?'🙈':'👁'}
+              </button>
+            </div>
+          </div>
+          {err&&<p style={{color:'#ef4444',fontSize:12,marginBottom:10,marginTop:6}}>{err}</p>}
+          <button
+            type="submit"
+            disabled={busy}
+            style={{width:'100%',padding:'14px 0',borderRadius:10,border:'none',background:busy?'#94a3b8':'linear-gradient(135deg,#0d1b4b,#3b82f6)',color:'#fff',fontWeight:700,fontSize:15,cursor:busy?'default':'pointer',marginTop:14,letterSpacing:.3,fontFamily:'inherit'}}
+          >
+            {busy?'Accesso in corso...':'Accedi →'}
+          </button>
+        </form>
+
+        <div style={{marginTop:24,padding:'12px 16px',background:'#f8fafc',borderRadius:10,fontSize:11,color:'#94a3b8',textAlign:'center'}}>
+          🔒 Accesso riservato · TIM Business CRM
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ── APPOINTMENT MODAL ──────────────────────────────────────── */
+function AppointmentModal({onClose,onSaved}){
+  const [company,setCompany]=useState('');
+  const [contact,setContact]=useState('');
+  const [phone,setPhone]=useState('');
+  const [date,setDate]=useState('');
+  const [time,setTime]=useState('');
+  const [notes,setNotes]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState('');
+
+  const save=async()=>{
+    if(!company.trim())return setErr('Inserisci il nome azienda');
+    if(!date)return setErr('Seleziona una data');
+    setBusy(true);setErr('');
+    try{
+      const r=await fetch('/api/appointment',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({company,contactName:contact,phone,date,time,notes})});
+      let d={};
+      try{d=await r.json();}catch{}
+      if(!r.ok)return setErr('Errore '+(d.error||r.status||'sconosciuto'));
+      onSaved();
+      onClose();
+    }catch(e){setErr('Errore: '+e.message);}
+    setBusy(false);
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:480,boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>🗓 Nuovo Appuntamento</h2>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:12}}>
+          <div style={{gridColumn:'1/-1'}}>
+            <label style={S.lbl}>Azienda *</label>
+            <input style={S.inp} value={company} onChange={e=>setCompany(e.target.value)} placeholder="Es. Rossi SRL" autoFocus/>
+          </div>
+          <div>
+            <label style={S.lbl}>Referente</label>
+            <input style={S.inp} value={contact} onChange={e=>setContact(e.target.value)} placeholder="Nome cognome"/>
+          </div>
+          <div>
+            <label style={S.lbl}>Telefono</label>
+            <input style={S.inp} value={phone} onChange={e=>setPhone(e.target.value)} placeholder="333 1234567"/>
+          </div>
+          <div>
+            <label style={S.lbl}>Data *</label>
+            <input style={S.inp} type="date" value={date} onChange={e=>setDate(e.target.value)} min={todayStr()}/>
+          </div>
+          <div>
+            <label style={S.lbl}>Orario</label>
+            <input style={S.inp} type="time" value={time} onChange={e=>setTime(e.target.value)}/>
+          </div>
+          <div style={{gridColumn:'1/-1'}}>
+            <label style={S.lbl}>Note</label>
+            <textarea style={{...S.inp,height:70,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Motivo, prodotti di interesse..."/>
+          </div>
+        </div>
+        {err&&<p style={{color:'#ef4444',fontSize:12,marginBottom:10}}>{err}</p>}
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={save} disabled={busy} style={{...S.btn('lg'),...S.suc,flex:1,opacity:busy?.7:1}}>
+            {busy?'Salvataggio...':'💾 Salva Appuntamento'}
+          </button>
+          <button onClick={onClose} style={{...S.btn('lg'),...S.gho}}>Annulla</button>
+        </div>
+        <p style={{fontSize:11,color:'#94a3b8',marginTop:10,textAlign:'center'}}>✓ Verrà aggiunto al Google Calendar automaticamente</p>
+      </div>
+    </div>
+  );
+}
+
+/* ── CRM APP (master only) ───────────────────── */
+function CrmApp({session,onLogout}){
+  const [clients,setClients]=useState(loadClients);
+  const [view,setView]=useState("dashboard");
+  const [selId,setSelId]=useState(null);
+  const [editId,setEditId]=useState(null);
+  const [form,setForm]=useState(EMPTY);
+  const [search,setSearch]=useState("");
+  const [F,setF]=useState({attivoDa:"tutti",retiFisse:"tutti",retiMobili:"tutti",centralino:"tutti",trunk:"tutti"});
+  const [toast,setToast]=useState(null);
+  const [appointments,setAppointments]=useState([]);
+  const [apptLoading,setApptLoading]=useState(false);
+  const [showApptModal,setShowApptModal]=useState(false);
+
+  const save=(c)=>{setClients(c);saveClients(c)};
+  const notify=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),2500)};
+  const setFilt=(k,v)=>setF(f=>({...f,[k]:v}));
+
+  const loadAppointments=useCallback(async()=>{
+    setApptLoading(true);
+    try{const r=await fetch('/api/data?type=appointments');const d=await r.json();setAppointments(Array.isArray(d)?d:[]);}catch{setAppointments([]);}
+    setApptLoading(false);
+  },[]);
+
+  useEffect(()=>{if(view==="appuntamenti")loadAppointments();},[view,loadAppointments]);
+
+  const handleSave=()=>{
+    if(!form.name.trim())return notify("Inserisci il nome cliente","err");
+    if(!form.contractEnd)return notify("Inserisci la scadenza contratto","err");
+    const clean={...form,retiFisse:Number(form.retiFisse),retiMobili:Number(form.retiMobili)};
+    if(editId){save(clients.map(c=>c.id===editId?{...clean,id:editId}:c));notify("Cliente aggiornato ✓");}
+    else{save([...clients,{...clean,id:Date.now()}]);notify("Cliente aggiunto ✓");}
+    setEditId(null);setForm(EMPTY);setView("clienti");
+  };
+  const handleDelete=(id)=>{save(clients.filter(c=>c.id!==id));setSelId(null);notify("Cliente eliminato");};
+  const startEdit=(c)=>{setEditId(c.id);setForm({...c});setView("form");};
+
+  const match=(c)=>{
+    if(search&&!c.name.toLowerCase().includes(search.toLowerCase())&&!c.contact.toLowerCase().includes(search.toLowerCase()))return false;
+    const y=yearsActive(c.contractStart);
+    if(F.attivoDa==="lt1"&&!(y!==null&&y<1))return false;
+    if(F.attivoDa==="1-2"&&!(y!==null&&y>=1&&y<2))return false;
+    if(F.attivoDa==="2-3"&&!(y!==null&&y>=2&&y<3))return false;
+    if(F.attivoDa==="gt3"&&!(y!==null&&y>=3))return false;
+    if(F.retiFisse==="0"&&c.retiFisse!==0)return false;if(F.retiFisse==="1"&&c.retiFisse!==1)return false;
+    if(F.retiFisse==="2"&&c.retiFisse!==2)return false;if(F.retiFisse==="3+"&&c.retiFisse<3)return false;
+    if(F.retiMobili==="0"&&c.retiMobili!==0)return false;if(F.retiMobili==="1-3"&&!(c.retiMobili>=1&&c.retiMobili<=3))return false;
+    if(F.retiMobili==="4-9"&&!(c.retiMobili>=4&&c.retiMobili<=9))return false;if(F.retiMobili==="10+"&&c.retiMobili<10)return false;
+    if(F.centralino==="si"&&!c.centralino)return false;if(F.centralino==="no"&&c.centralino)return false;
+    if(F.trunk==="si"&&!c.trunk)return false;if(F.trunk==="no"&&c.trunk)return false;
+    return true;
+  };
+
+  const filtered=clients.filter(match);
+  const expiring=clients.filter(c=>daysUntil(c.contractEnd)<=60&&daysUntil(c.contractEnd)>=0);
+  const expired=clients.filter(c=>daysUntil(c.contractEnd)<0);
+  const highRisk=clients.filter(c=>c.churnRisk==="alto");
+  const sel=clients.find(c=>c.id===selId);
+  const todayAppts=appointments.filter(a=>a.date===todayStr());
+  const upcomingAppts=appointments.filter(a=>a.date>=todayStr()).sort((a,b)=>a.date.localeCompare(b.date));
+  const pastAppts=appointments.filter(a=>a.date<todayStr()).sort((a,b)=>b.date.localeCompare(a.date));
+
+  const TABS=[{k:"dashboard",l:"📊 Dashboard"},{k:"clienti",l:"👥 Clienti"},{k:"scadenze",l:"📅 Scadenze"},{k:"appuntamenti",l:"🗓 Appuntamenti"}];
+
+  const FSel=({label,fkey,opts})=>(
+    <div>
+      <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",marginBottom:3}}>{label}</div>
+      <select style={S.sel} value={F[fkey]} onChange={e=>setFilt(fkey,e.target.value)}>
+        {opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+      </select>
+    </div>
+  );
+
+  return(
+    <div style={S.app}>
+      {toast&&<div style={S.toast(toast.type)}>{toast.msg}</div>}
+      {showApptModal&&<AppointmentModal onClose={()=>setShowApptModal(false)} onSaved={()=>{loadAppointments();notify('Appuntamento salvato ✓');}}/>}
+      <header style={S.hdr}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:32,height:32,background:"#3b82f6",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>📱</div>
+          <div>
+            <div style={{fontSize:15,fontWeight:700}}>TIM Business CRM</div>
+            <div style={{fontSize:10,color:"#94a3b8"}}>👑 {session.name} · Master</div>
+          </div>
+        </div>
+        <nav style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+          {TABS.map(t=>(
+            <button key={t.k} style={S.nb(view===t.k)} onClick={()=>{setView(t.k);setSelId(null);}}>
+              {t.l}
+              {t.k==="appuntamenti"&&todayAppts.length>0&&<span style={{marginLeft:5,background:"#ef4444",borderRadius:10,padding:"1px 6px",fontSize:10}}>{todayAppts.length}</span>}
+            </button>
+          ))}
+          <button style={S.nb(view==="form"&&!editId)} onClick={()=>{setEditId(null);setForm(EMPTY);setView("form");}}>+ Aggiungi</button>
+          <a href="/callcenter.html" style={{padding:"7px 12px",borderRadius:8,fontSize:12,fontWeight:700,background:"#22c55e",color:"#fff",textDecoration:"none"}}>📞 Call Center</a>
+          <button onClick={()=>{clearSession();onLogout();}} style={{...S.nb(false),background:"rgba(239,68,68,.3)"}}>Esci</button>
+        </nav>
+      </header>
+
+      <div style={S.wrap}>
+
+        {view==="dashboard"&&(
+          <>
+            <div style={{marginBottom:16}}>
+              <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>Benvenuto, {session.name} 👋</h2>
+              <p style={{fontSize:12,color:"#64748b",marginTop:3}}>Riepilogo del tuo portafoglio</p>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:14}}>
+              <div style={{...S.card,marginBottom:0,textAlign:"center"}}><div style={{fontSize:26,fontWeight:800,color:"#0d1b4b"}}>{clients.length}</div><div style={{fontSize:11,color:"#64748b",marginTop:2,fontWeight:500}}>Clienti totali</div></div>
+              <div style={{...S.card,marginBottom:0,textAlign:"center",borderLeft:"3px solid #f59e0b"}}><div style={{fontSize:26,fontWeight:800,color:"#f59e0b"}}>{expiring.length}</div><div style={{fontSize:11,color:"#64748b",marginTop:2,fontWeight:500}}>Scadenze entro 60gg</div></div>
+              <div style={{...S.card,marginBottom:0,textAlign:"center",borderLeft:"3px solid #ef4444"}}><div style={{fontSize:26,fontWeight:800,color:"#ef4444"}}>{highRisk.length}</div><div style={{fontSize:11,color:"#64748b",marginTop:2,fontWeight:500}}>Rischio alto</div></div>
+            </div>
+            {todayAppts.length>0&&(
+              <div style={{...S.card,borderLeft:"4px solid #8b5cf6",marginBottom:14}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:10}}>🗓 Appuntamenti di oggi ({todayAppts.length})</div>
+                {todayAppts.map(a=>(
+                  <div key={a.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f8fafc"}}>
+                    <div><div style={{fontWeight:700,fontSize:13}}>{a.company}</div><div style={{fontSize:11,color:"#64748b"}}>{a.phone}{a.time&&` · ore ${a.time}`}</div>{a.notes&&<div style={{fontSize:11,color:"#94a3b8",fontStyle:"italic"}}>"{a.notes}"</div>}</div>
+                    {a.googleEventId&&<span style={{fontSize:11,color:"#22c55e",fontWeight:700}}>✓ Google Cal</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {(expiring.length>0||expired.length>0)&&(
+              <div style={S.card}>
+                <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:12}}>🔔 Azioni urgenti</div>
+                {expired.map(c=>(
+                  <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,marginBottom:6,background:"#fef2f2",borderLeft:"3px solid #ef4444",cursor:"pointer"}} onClick={()=>{setSelId(c.id);setView("clienti");}}>
+                    <div><div style={{fontWeight:700,fontSize:13}}>{c.name}</div><div style={{fontSize:12,color:"#64748b"}}>Scaduto il {fmt(c.contractEnd)}</div></div>
+                    <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#fef2f2",color:"#ef4444"}}>SCADUTO</span>
+                  </div>
+                ))}
+                {expiring.map(c=>(
+                  <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,marginBottom:6,background:"#fffbeb",borderLeft:"3px solid #f59e0b",cursor:"pointer"}} onClick={()=>{setSelId(c.id);setView("clienti");}}>
+                    <div><div style={{fontWeight:700,fontSize:13}}>{c.name}</div><div style={{fontSize:12,color:"#64748b"}}>Scade il {fmt(c.contractEnd)} ({daysUntil(c.contractEnd)} giorni)</div></div>
+                    <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#fffbeb",color:"#f59e0b"}}>{daysUntil(c.contractEnd)}gg</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {view==="clienti"&&!selId&&(
+          <>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>Clienti ({filtered.length})</h2>
+            </div>
+            <div style={{...S.card,padding:"12px 14px"}}>
+              <input style={{...S.inp,marginBottom:10}} placeholder="🔍 Cerca..." value={search} onChange={e=>setSearch(e.target.value)}/>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+                {[["attivoDa","Attivo da",[["tutti","Tutti"],["lt1","<1 anno"],["1-2","1-2 anni"],["2-3","2-3 anni"],["gt3",">3 anni"]]],["retiFisse","Reti fisse",[["tutti","Tutte"],["0","0"],["1","1"],["2","2"],["3+","3+"]]],["retiMobili","Reti mobili",[["tutti","Tutte"],["0","0"],["1-3","1-3"],["4-9","4-9"],["10+","10+"]]],["centralino","Centralino",[["tutti","Tutti"],["si","Sì"],["no","No"]]],["trunk","Trunk",[["tutti","Tutti"],["si","Sì"],["no","No"]]]].map(([fkey,label,opts])=>(
+                  <FSel key={fkey} label={label} fkey={fkey} opts={opts}/>
+                ))}
+              </div>
+            </div>
+            <div style={S.card}>
+              <table style={S.tbl}>
+                <thead><tr>{["Cliente","Stipula → Scad.","Fisse","Mobile","Centralino","Trunk","Rischio",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {filtered.map(c=>{
+                    const d=daysUntil(c.contractEnd);
+                    return(
+                      <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>setSelId(c.id)}>
+                        <td style={S.td}><div style={{fontWeight:700}}>{c.name}</div><div style={{fontSize:11,color:"#64748b"}}>{c.contact}</div></td>
+                        <td style={S.td}><div style={{fontSize:11,color:"#64748b"}}>{fmt(c.contractStart)}</div><div style={{fontWeight:600,fontSize:12,color:d<0?"#ef4444":d<=30?"#f59e0b":"#0d1b4b"}}>{fmt(c.contractEnd)}</div>{d>=0&&d<=60&&<div style={{fontSize:10,color:"#f59e0b"}}>{d}gg</div>}{d<0&&<div style={{fontSize:10,color:"#ef4444"}}>Scaduto</div>}</td>
+                        <td style={S.td}><strong>{c.retiFisse}</strong></td><td style={S.td}><strong>{c.retiMobili}</strong></td>
+                        <td style={S.td}><span style={S.yn(c.centralino)}>{c.centralino?"Sì":"No"}</span></td>
+                        <td style={S.td}><span style={S.yn(c.trunk)}>{c.trunk?"Sì":"No"}</span></td>
+                        <td style={S.td}><span style={S.badge(c.churnRisk)}>{RISK[c.churnRisk]?.label}</span></td>
+                        <td style={S.td} onClick={e=>{e.stopPropagation();startEdit(c);}}><button style={{...S.btn("sm"),...S.pri}}>✏️</button></td>
+                      </tr>
+                    );
+                  })}
+                  {filtered.length===0&&<tr><td colSpan={8} style={{...S.td,textAlign:"center",color:"#94a3b8",padding:24}}>Nessun cliente trovato</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {view==="clienti"&&selId&&sel&&(
+          <>
+            <button style={{...S.btn("sm"),...S.gho,marginBottom:12,paddingLeft:0}} onClick={()=>setSelId(null)}>← Lista</button>
+            <div style={S.card}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+                <div><h2 style={{fontSize:20,fontWeight:800,color:"#0d1b4b"}}>{sel.name}</h2><p style={{fontSize:12,color:"#64748b",marginTop:3}}>{sel.contact} · {sel.phone}</p></div>
+                <span style={S.badge(sel.churnRisk)}>Rischio {RISK[sel.churnRisk]?.label}</span>
+              </div>
+              {[["Data stipula",fmt(sel.contractStart)],["Scadenza",fmt(sel.contractEnd)],["Reti fisse",sel.retiFisse],["Reti mobili",sel.retiMobili]].map(([l,v])=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #f1f5f9",fontSize:13}}><span style={{color:"#64748b"}}>{l}</span><strong>{v}</strong></div>
+              ))}
+              <div style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #f1f5f9",fontSize:13}}><span style={{color:"#64748b"}}>Centralino</span><span style={S.yn(sel.centralino)}>{sel.centralino?"Sì":"No"}</span></div>
+              <div style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #f1f5f9",fontSize:13}}><span style={{color:"#64748b"}}>Trunk</span><span style={S.yn(sel.trunk)}>{sel.trunk?"Sì":"No"}</span></div>
+              <div style={{padding:"9px 0",borderBottom:"1px solid #f1f5f9"}}><div style={{fontSize:12,color:"#64748b",marginBottom:6}}>Prodotti</div><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{sel.products.map(p=><span key={p} style={{fontSize:11,background:"#eff6ff",color:"#3b82f6",padding:"2px 8px",borderRadius:20,fontWeight:600}}>{p}</span>)}</div></div>
+              {sel.notes&&<div style={{marginTop:12,background:"#f8fafc",borderRadius:8,padding:10,fontSize:13,color:"#475569"}}>📝 {sel.notes}</div>}
+              <div style={{display:"flex",gap:8,marginTop:16}}>
+                <button style={{...S.btn("lg"),...S.pri}} onClick={()=>startEdit(sel)}>✏️ Modifica</button>
+                <button style={{...S.btn("lg"),...S.dan}} onClick={()=>handleDelete(sel.id)}>🗑 Elimina</button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {view==="scadenze"&&(
+          <>
+            <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b",marginBottom:14}}>📅 Scadenze contrattuali</h2>
+            {[...clients].sort((a,b)=>new Date(a.contractEnd)-new Date(b.contractEnd)).map(c=>{
+              const d=daysUntil(c.contractEnd);
+              const col=d<0?{bg:"#fef2f2",border:"#ef4444",txt:"#ef4444"}:d<=30?{bg:"#fef2f2",border:"#ef4444",txt:"#ef4444"}:d<=60?{bg:"#fffbeb",border:"#f59e0b",txt:"#f59e0b"}:{bg:"#f0f9ff",border:"#3b82f6",txt:"#3b82f6"};
+              return(
+                <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:8,marginBottom:10,background:col.bg,borderLeft:`3px solid ${col.border}`,cursor:"pointer"}} onClick={()=>{setSelId(c.id);setView("clienti");}}>
+                  <div><div style={{fontWeight:700,fontSize:14}}>{c.name}</div><div style={{fontSize:12,color:"#64748b",marginTop:2}}>Stipula: {fmt(c.contractStart)}</div></div>
+                  <div style={{textAlign:"right"}}><div style={{fontWeight:700,fontSize:13,color:col.txt}}>{d<0?"Scaduto":`${d} giorni`}</div><div style={{fontSize:12,color:"#64748b"}}>{fmt(c.contractEnd)}</div></div>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {view==="appuntamenti"&&(
+          <>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>🗓 Appuntamenti fissati</h2>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setShowApptModal(true)} style={{...S.btn("sm"),...S.suc}}>➕ Nuovo Appuntamento</button>
+                <button onClick={loadAppointments} style={{...S.btn("sm"),...S.pri}}>🔄 Aggiorna</button>
+              </div>
+            </div>
+            {apptLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:32}}>Caricamento...</div>}
+            {!apptLoading&&appointments.length===0&&(
+              <div style={{...S.card,textAlign:"center",color:"#94a3b8",padding:40}}>
+                <div style={{fontSize:36,marginBottom:10}}>🗓</div>
+                <div style={{fontWeight:700,marginBottom:6}}>Nessun appuntamento ancora</div>
+                <div style={{fontSize:12}}>Gli appuntamenti fissati dal Call Center appariranno qui automaticamente.</div>
+              </div>
+            )}
+            {!apptLoading&&upcomingAppts.length>0&&(
+              <div style={S.card}>
+                <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:12}}>📅 Prossimi ({upcomingAppts.length})</div>
+                {upcomingAppts.map(a=>(
+                  <div key={a.id} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"12px 0",borderBottom:"1px solid #f8fafc"}}>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                        <span style={{fontWeight:800,fontSize:14,color:"#0d1b4b"}}>{a.company}</span>
+                        {a.date===todayStr()&&<span style={{fontSize:11,fontWeight:700,background:"#fee2e2",color:"#ef4444",padding:"2px 8px",borderRadius:20}}>OGGI</span>}
+                        {a.googleEventId&&<span style={{fontSize:11,fontWeight:700,background:"#f0fdf4",color:"#22c55e",padding:"2px 8px",borderRadius:20}}>✓ Google Cal</span>}
+                      </div>
+                      <div style={{fontSize:12,color:"#64748b"}}>{a.phone}{a.contactName&&` · ${a.contactName}`}</div>
+                      {a.notes&&<div style={{fontSize:11,color:"#94a3b8",marginTop:3,fontStyle:"italic"}}>"{a.notes}"</div>}
+                    </div>
+                    <div style={{textAlign:"right",marginLeft:16,flexShrink:0}}>
+                      <div style={{fontWeight:800,fontSize:14,color:"#8b5cf6"}}>{fmt(a.date)}</div>
+                      {a.time&&<div style={{fontSize:12,color:"#64748b"}}>🕐 {a.time}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!apptLoading&&pastAppts.length>0&&(
+              <div style={S.card}>
+                <div style={{fontSize:13,fontWeight:700,color:"#64748b",marginBottom:12}}>🗂 Passati ({pastAppts.length})</div>
+                {pastAppts.map(a=>(
+                  <div key={a.id} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid #f8fafc",opacity:.7}}>
+                    <div><div style={{fontWeight:700,fontSize:13}}>{a.company}</div><div style={{fontSize:11,color:"#64748b"}}>{a.phone}{a.contactName&&` · ${a.contactName}`}</div>{a.notes&&<div style={{fontSize:11,color:"#94a3b8",fontStyle:"italic"}}>"{a.notes}"</div>}</div>
+                    <div style={{textAlign:"right",marginLeft:16}}><div style={{fontWeight:700,fontSize:13,color:"#64748b"}}>{fmt(a.date)}</div>{a.time&&<div style={{fontSize:11,color:"#94a3b8"}}>🕐 {a.time}</div>}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {view==="form"&&(
+          <>
+            <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b",marginBottom:14}}>{editId?"✏️ Modifica cliente":"➕ Nuovo cliente"}</h2>
+            <div style={S.card}>
+              <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",marginBottom:10}}>Anagrafica</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+                <div><label style={S.lbl}>Ragione sociale *</label><input style={S.inp} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Es. Rossi SRL"/></div>
+                <div><label style={S.lbl}>Referente</label><input style={S.inp} value={form.contact} onChange={e=>setForm(f=>({...f,contact:e.target.value}))} placeholder="Nome cognome"/></div>
+                <div><label style={S.lbl}>Telefono</label><input style={S.inp} value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} placeholder="333 1234567"/></div>
+                <div><label style={S.lbl}>Rischio churn</label><select style={{...S.inp,cursor:"pointer"}} value={form.churnRisk} onChange={e=>setForm(f=>({...f,churnRisk:e.target.value}))}><option value="basso">🟢 Basso</option><option value="medio">🟡 Medio</option><option value="alto">🔴 Alto</option></select></div>
+              </div>
+              <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",marginBottom:10}}>Contratto</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+                <div><label style={S.lbl}>Data stipula</label><input style={S.inp} type="date" value={form.contractStart} onChange={e=>setForm(f=>({...f,contractStart:e.target.value}))}/></div>
+                <div><label style={S.lbl}>Scadenza *</label><input style={S.inp} type="date" value={form.contractEnd} onChange={e=>setForm(f=>({...f,contractEnd:e.target.value}))}/></div>
+              </div>
+              <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",marginBottom:10}}>Infrastruttura</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
+                <div><label style={S.lbl}>Reti fisse</label><input style={S.inp} type="number" min="0" value={form.retiFisse} onChange={e=>setForm(f=>({...f,retiFisse:e.target.value}))}/></div>
+                <div><label style={S.lbl}>Reti mobili</label><input style={S.inp} type="number" min="0" value={form.retiMobili} onChange={e=>setForm(f=>({...f,retiMobili:e.target.value}))}/></div>
+                <div><label style={S.lbl}>Centralino</label><select style={{...S.inp,cursor:"pointer"}} value={form.centralino?"si":"no"} onChange={e=>setForm(f=>({...f,centralino:e.target.value==="si"}))}><option value="no">No</option><option value="si">Sì</option></select></div>
+                <div><label style={S.lbl}>Trunk</label><select style={{...S.inp,cursor:"pointer"}} value={form.trunk?"si":"no"} onChange={e=>setForm(f=>({...f,trunk:e.target.value==="si"}))}><option value="no">No</option><option value="si">Sì</option></select></div>
+              </div>
+              <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",marginBottom:10}}>Prodotti attivi</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:16}}>
+                {PRODUCTS.map(p=><button key={p} type="button" onClick={()=>setForm(f=>({...f,products:f.products.includes(p)?f.products.filter(x=>x!==p):[...f.products,p]}))} style={{padding:"5px 10px",borderRadius:20,border:"1.5px solid",fontSize:12,fontWeight:600,cursor:"pointer",background:form.products.includes(p)?"#3b82f6":"#fff",color:form.products.includes(p)?"#fff":"#64748b",borderColor:form.products.includes(p)?"#3b82f6":"#e2e8f0"}}>{p}</button>)}
+              </div>
+              <div style={{marginBottom:16}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:70,resize:"vertical"}} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Note sul cliente..."/></div>
+              <div style={{display:"flex",gap:10}}>
+                <button style={{...S.btn("lg"),...S.pri}} onClick={handleSave}>💾 Salva</button>
+                <button style={{...S.btn("lg"),...S.gho}} onClick={()=>{setEditId(null);setForm(EMPTY);setView("clienti");}}>Annulla</button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── ROOT ─────────────────────────────────────── */
+function App(){
+  const [session,setSession_]=useState(getSession);
+
+  // If agent lands on CRM page, redirect once via effect (not during render)
+  useEffect(()=>{
+    if(session&&session.role==='agent'){
+      window.location.href='/callcenter.html';
+    }
+  },[]);
+
+  const handleLogin=(role,name)=>{
+    const s={role,name};
+    setSession(s);
+    setSession_(s);
+    if(role==='agent'){
+      window.location.href='/callcenter.html';
+    }
+  };
+
+  const handleLogout=()=>{clearSession();setSession_(null);};
+
+  if(!session) return <LoginScreen onLogin={handleLogin}/>;
+  if(session.role==='master') return <CrmApp session={session} onLogout={handleLogout}/>;
+
+  // Agent - show loading while useEffect redirect fires
+  return(
+    <div style={{minHeight:'100vh',background:'#0d1b4b',display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{color:'#fff',fontSize:14}}>Apertura Call Center...</div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+<script>if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));}</script>
+</body>
+</html>

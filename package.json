@@ -1,0 +1,9 @@
+{
+  "name": "tim-sistema",
+  "version": "1.0.0",
+  "dependencies": {
+    "twilio": "^4.23.0",
+    "@netlify/blobs": "6.5.0",
+    "googleapis": "^140.0.0"
+  }
+}

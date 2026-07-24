@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0d1b4b">
+<title>TIM Business – Call Center</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://media.twiliocdn.com/sdk/js/client/v1.13/twilio.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'DM Sans','Segoe UI',sans-serif;background:#f4f6f9;min-height:100vh;color:#1a1f2e}
+input,select,textarea,button{font-family:inherit}
+audio{width:100%;height:30px}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
+@keyframes ring{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
+
+/* ─── SESSION ─────────────────────────────────────────────── */
+const SK='tim_session';
+const getS=()=>{try{return JSON.parse(localStorage.getItem(SK))||null}catch{return null}};
+const saveS=(s)=>localStorage.setItem(SK,JSON.stringify(s));
+const clearS=()=>localStorage.removeItem(SK);
+
+/* ─── API ─────────────────────────────────────────────────── */
+async function doLogin(username,password){
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+    return await r.json();
+  }catch{return{ok:false}}
+}
+async function getData(type){try{const r=await fetch(`/api/data?type=${type}`);return await r.json()}catch{return type==='active'?null:[]}}
+async function setData(type,data){try{await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,data})})}catch{}}
+async function getTwilioToken(){try{const r=await fetch('/api/token');const d=await r.json();return d.token}catch{return null}}
+
+/* ─── HELPERS ─────────────────────────────────────────────── */
+const OUTCOMES=[
+  {key:'interessato',label:'✅ Interessato',color:'#22c55e'},
+  {key:'non_interessato',label:'❌ Non interessato',color:'#ef4444'},
+  {key:'richiamata',label:'🔄 Richiamata',color:'#f59e0b'},
+  {key:'appuntamento',label:'📅 Appuntamento',color:'#8b5cf6'},
+  {key:'segreteria',label:'📱 Segreteria',color:'#3b82f6'},
+];
+const STATUS_LABEL={interessato:'Interessato',non_interessato:'Non interessato',richiamata:'Richiamata',appuntamento:'Appuntamento',segreteria:'Segreteria',da_chiamare:'Da chiamare'};
+const STATUS_COLOR={interessato:'#22c55e',non_interessato:'#ef4444',richiamata:'#f59e0b',appuntamento:'#8b5cf6',segreteria:'#3b82f6',da_chiamare:'#64748b'};
+const STATUS_BG={interessato:'#f0fdf4',non_interessato:'#fef2f2',richiamata:'#fffbeb',appuntamento:'#f5f3ff',segreteria:'#eff6ff',da_chiamare:'#f1f5f9'};
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function fmtDur(s){if(!s)return'0:00';return`${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`}
+function fmtDate(d){if(!d)return'—';return new Date(d).toLocaleDateString('it-IT',{day:'2-digit',month:'short',year:'numeric'})}
+function fmtTime(d){if(!d)return'—';return new Date(d).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
+function today(){return new Date().toISOString().split('T')[0]}
+function isToday(d){return d&&d<=today()}
+
+/* ─── STYLES ──────────────────────────────────────────────── */
+const C={
+  hdr:{background:'#0d1b4b',color:'#fff',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:100,boxShadow:'0 2px 8px rgba(0,0,0,.2)',flexWrap:'wrap',gap:8},
+  wrap:{padding:'16px',maxWidth:960,margin:'0 auto'},
+  card:{background:'#fff',borderRadius:12,padding:16,boxShadow:'0 1px 4px rgba(0,0,0,.07)',marginBottom:12},
+  inp:{padding:'9px 12px',borderRadius:8,border:'1.5px solid #e2e8f0',fontSize:13,outline:'none',width:'100%',background:'#fff'},
+  lbl:{fontSize:11,fontWeight:600,color:'#475569',marginBottom:4,display:'block'},
+  nb:(a)=>({padding:'7px 12px',borderRadius:8,border:'none',cursor:'pointer',fontSize:12,fontWeight:700,background:a?'#3b82f6':'rgba(255,255,255,.12)',color:'#fff'}),
+  btn:(v,full)=>({padding:v==='lg'?'13px 20px':v==='sm'?'5px 12px':'9px 16px',borderRadius:8,border:'none',cursor:'pointer',fontSize:v==='sm'?12:13,fontWeight:700,width:full?'100%':'auto'}),
+  pri:{background:'#3b82f6',color:'#fff'},
+  suc:{background:'#22c55e',color:'#fff'},
+  dan:{background:'#ef4444',color:'#fff'},
+  gho:{background:'transparent',color:'#64748b'},
+  th:{textAlign:'left',fontSize:10,fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'.05em',padding:'6px 8px',borderBottom:'2px solid #f1f5f9'},
+  td:{padding:'10px 8px',borderBottom:'1px solid #f8fafc',verticalAlign:'middle',fontSize:13},
+};
+
+function Badge({status}){
+  return <span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:20,background:STATUS_BG[status]||'#f1f5f9',color:STATUS_COLOR[status]||'#64748b'}}>{STATUS_LABEL[status]||status}</span>;
+}
+
+function CallTimer({startTime}){
+  const [e,setE]=useState(0);
+  useEffect(()=>{
+    const t0=startTime?new Date(startTime).getTime():Date.now();
+    const iv=setInterval(()=>setE(Math.floor((Date.now()-t0)/1000)),1000);
+    return()=>clearInterval(iv);
+  },[startTime]);
+  return <span>{fmtDur(e)}</span>;
+}
+
+function Toast({msg,type}){
+  if(!msg)return null;
+  return <div style={{position:'fixed',bottom:20,left:'50%',transform:'translateX(-50%)',background:type==='err'?'#ef4444':'#22c55e',color:'#fff',padding:'10px 20px',borderRadius:10,fontWeight:700,fontSize:13,zIndex:9999,boxShadow:'0 4px 16px rgba(0,0,0,.2)',whiteSpace:'nowrap'}}>{msg}</div>;
+}
+
+/* ─── LOGIN ───────────────────────────────────────────────── */
+function LoginScreen({onLogin}){
+  const [user,setUser]=useState('');
+  const [pass,setPass]=useState('');
+  const [show,setShow]=useState(false);
+  const [err,setErr]=useState('');
+  const [busy,setBusy]=useState(false);
+
+  const go=async(e)=>{
+    e&&e.preventDefault();
+    if(!user||!pass)return setErr('Inserisci username e password');
+    setBusy(true);setErr('');
+    const res=await doLogin(user,pass);
+    setBusy(false);
+    if(res.ok)onLogin(res.role,res.name);
+    else setErr('Credenziali non valide');
+  };
+
+  return(
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0d1b4b 0%,#1e3a8a 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{background:'#fff',borderRadius:20,padding:'40px 32px',width:'100%',maxWidth:380,boxShadow:'0 24px 80px rgba(0,0,0,.35)'}}>
+        <div style={{textAlign:'center',marginBottom:32}}>
+          <div style={{width:64,height:64,background:'linear-gradient(135deg,#0d1b4b,#3b82f6)',borderRadius:18,display:'flex',alignItems:'center',justifyContent:'center',fontSize:30,margin:'0 auto 16px',boxShadow:'0 8px 24px rgba(59,130,246,.3)'}}>📞</div>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#0d1b4b',marginBottom:4}}>TIM Business</h1>
+          <p style={{fontSize:13,color:'#64748b'}}>Call Center</p>
+        </div>
+        <form onSubmit={go}>
+          <div style={{marginBottom:14}}>
+            <label style={C.lbl}>Username</label>
+            <input style={{...C.inp,fontSize:14}} type="text" value={user} onChange={e=>setUser(e.target.value)} placeholder="es. christopher" autoFocus/>
+          </div>
+          <div style={{marginBottom:6}}>
+            <label style={C.lbl}>Password</label>
+            <div style={{position:'relative'}}>
+              <input style={{...C.inp,fontSize:14,paddingRight:44}} type={show?'text':'password'} value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••"/>
+              <button type="button" onClick={()=>setShow(s=>!s)} style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',fontSize:16,color:'#94a3b8'}}>{show?'🙈':'👁'}</button>
+            </div>
+          </div>
+          {err&&<p style={{color:'#ef4444',fontSize:12,marginBottom:6,marginTop:6}}>{err}</p>}
+          <button type="submit" disabled={busy} style={{width:'100%',padding:'14px 0',borderRadius:10,border:'none',background:busy?'#94a3b8':'linear-gradient(135deg,#0d1b4b,#3b82f6)',color:'#fff',fontWeight:700,fontSize:15,cursor:busy?'default':'pointer',marginTop:14}}>
+            {busy?'Accesso...':'Accedi →'}
+          </button>
+        </form>
+        <div style={{marginTop:20,padding:'10px 14px',background:'#f8fafc',borderRadius:10,fontSize:11,color:'#94a3b8',textAlign:'center'}}>🔒 Accesso riservato · TIM Business</div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── AGENT APP ───────────────────────────────────────────── */
+function AgentApp({session,onLogout}){
+  const [contacts,setContacts]=useState([]);
+  const [calls,setCalls]=useState([]);
+  const [view,setView]=useState('queue');
+  const [curContact,setCurContact]=useState(null);
+  const [callStart,setCallStart]=useState(null);
+  const [callSid,setCallSid]=useState(null);
+  const [muted,setMuted]=useState(false);
+  const [pendingEnd,setPendingEnd]=useState(null);
+  const [outcome,setOutcome]=useState(null);
+  const [notes,setNotes]=useState('');
+  const [cbDate,setCbDate]=useState('');
+  const [cbTime,setCbTime]=useState('');
+  const [twStatus,setTwStatus]=useState('connecting');
+  const [search,setSearch]=useState('');
+  const [toast,setToast]=useState(null);
+  const connRef=useRef(null);
+  const pendRef=useRef(null);
+  const initRef=useRef(false);
+
+  const notify=(msg,type='ok')=>{setToast({msg,type});setTimeout(()=>setToast(null),3000)};
+
+  useEffect(()=>{
+    (async()=>{
+      const[c,cl]=await Promise.all([getData('contacts'),getData('calls')]);
+      setContacts(Array.isArray(c)?c:[]);
+      setCalls(Array.isArray(cl)?cl:[]);
+    })();
+    const iv=setInterval(async()=>{
+      const[c,cl]=await Promise.all([getData('contacts'),getData('calls')]);
+      setContacts(Array.isArray(c)?c:[]);
+      setCalls(Array.isArray(cl)?cl:[]);
+    },30000);
+    return()=>clearInterval(iv);
+  },[]);
+
+  useEffect(()=>{
+    if(initRef.current)return;
+    initRef.current=true;
+    let alive=true;
+    getTwilioToken().then(token=>{
+      if(!token||!alive){setTwStatus('error');return;}
+      try{
+        Twilio.Device.setup(token,{debug:false,enableRingingState:true});
+        Twilio.Device.on('ready',()=>{if(alive)setTwStatus('ready')});
+        Twilio.Device.on('error',(e)=>{console.error('Twilio:',e);if(alive)setTwStatus('error')});
+        Twilio.Device.on('connect',(conn)=>{
+          if(!alive)return;
+          connRef.current=conn;
+          const sid=conn.parameters?.CallSid||conn.parameters?.callsid||'';
+          setCallSid(sid);
+          const t=new Date().toISOString();
+          setCallStart(t);
+          if(pendRef.current){
+            setData('active',{contactName:pendRef.current.company,phone:pendRef.current.phone,startTime:t,callSid:sid});
+          }
+        });
+        Twilio.Device.on('disconnect',(conn)=>{
+          if(!alive)return;
+          const sid=conn?.parameters?.CallSid||conn?.parameters?.callsid||callSid;
+          setPendingEnd({callSid:sid,endTime:new Date().toISOString()});
+          connRef.current=null;
+          setData('active',null);
+          setView('outcome');
+        });
+      }catch(e){console.error('Twilio setup:',e);if(alive)setTwStatus('error');}
+    });
+    return()=>{alive=false;try{Twilio.Device.destroy();}catch{}};
+  },[]);
+
+  const makeCall=(contact)=>{
+    if(twStatus!=='ready'){notify('Twilio non pronto. Verifica le credenziali.','err');return;}
+    pendRef.current=contact;
+    setCurContact(contact);setMuted(false);setCallStart(null);setCallSid(null);
+    setView('calling');
+    try{Twilio.Device.connect({To:contact.phone});}
+    catch(e){notify('Errore: '+e.message,'err');setView('queue');}
+  };
+
+  const hangup=()=>{try{Twilio.Device.disconnectAll();}catch{}};
+  const toggleMute=()=>{const m=!muted;setMuted(m);if(connRef.current)connRef.current.mute(m);};
+
+  const saveOutcome=async()=>{
+    if(!outcome)return;
+    const dur=callStart&&pendingEnd?.endTime?Math.floor((new Date(pendingEnd.endTime)-new Date(callStart))/1000):0;
+    const newCall={id:uid(),callSid:pendingEnd?.callSid||uid(),contactId:curContact?.id,contactName:curContact?.company,phone:curContact?.phone,startTime:callStart,endTime:pendingEnd?.endTime||new Date().toISOString(),duration:dur,outcome,notes,status:'completata'};
+    const updCalls=[...calls,newCall];
+    setCalls(updCalls);
+    await setData('calls',updCalls);
+
+    if(outcome==='appuntamento'&&cbDate){
+      try{await fetch('/api/appointment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company:curContact?.company,contactName:curContact?.contact,phone:curContact?.phone,date:cbDate,time:cbTime,notes})});}catch{}
+    }
+
+    const updContacts=contacts.map(c=>c.id!==curContact?.id?c:{...c,status:outcome,notes:notes||c.notes,callbackDate:(cbDate||c.callbackDate)});
+    setContacts(updContacts);
+    await setData('contacts',updContacts);
+
+    setView('queue');setCurContact(null);setCallStart(null);setPendingEnd(null);setOutcome(null);setNotes('');setCbDate('');setCbTime('');
+    notify(outcome==='appuntamento'?'Appuntamento salvato ✓':'Chiamata salvata ✓');
+  };
+
+  const todayCalls=calls.filter(c=>c.startTime?.startsWith(today()));
+  const sorted=useMemo(()=>[...contacts].sort((a,b)=>{
+    const at=isToday(a.callbackDate)?0:1,bt=isToday(b.callbackDate)?0:1;
+    if(at!==bt)return at-bt;
+    return(a.status==='da_chiamare'?0:1)-(b.status==='da_chiamare'?0:1);
+  }).filter(c=>!search||c.company?.toLowerCase().includes(search.toLowerCase())||c.phone?.includes(search)),[contacts,search]);
+
+  const dotColor={disconnected:'#94a3b8',connecting:'#f59e0b',ready:'#22c55e',error:'#ef4444'}[twStatus];
+  const dotLabel={disconnected:'Disconnesso',connecting:'Connessione...',ready:'Pronto',error:'Errore VoIP'}[twStatus];
+
+  return(
+    <div style={{fontFamily:"'DM Sans','Segoe UI',sans-serif",background:'#f4f6f9',minHeight:'100vh'}}>
+      <Toast msg={toast?.msg} type={toast?.type}/>
+      <header style={C.hdr}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:32,height:32,background:'#3b82f6',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center'}}>🎧</div>
+          <div>
+            <div style={{fontSize:15,fontWeight:700}}>{session.name}</div>
+            <div style={{fontSize:10,color:'#94a3b8',display:'flex',alignItems:'center',gap:4}}>
+              <span style={{width:7,height:7,borderRadius:'50%',background:dotColor,display:'inline-block'}}/>
+              {dotLabel}
+            </div>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <span style={{fontSize:12,color:'#94a3b8'}}>{todayCalls.length} chiamate oggi</span>
+          <button onClick={onLogout} style={C.nb(false)}>Esci</button>
+        </div>
+      </header>
+
+      <div style={C.wrap}>
+        {view==='queue'&&(
+          <>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:14}}>
+              {[{l:'Oggi',v:todayCalls.length,c:'#3b82f6'},{l:'Interessati',v:todayCalls.filter(c=>c.outcome==='interessato').length,c:'#22c55e'},{l:'Appuntamenti',v:todayCalls.filter(c=>c.outcome==='appuntamento').length,c:'#8b5cf6'},{l:'Richiamati oggi',v:contacts.filter(c=>isToday(c.callbackDate)).length,c:'#f59e0b'}].map(s=>(
+                <div key={s.l} style={{...C.card,marginBottom:0,textAlign:'center',borderTop:`3px solid ${s.c}`,padding:'12px 10px'}}>
+                  <div style={{fontSize:24,fontWeight:800,color:s.c}}>{s.v}</div>
+                  <div style={{fontSize:10,color:'#64748b',marginTop:2,fontWeight:600}}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+            <input style={{...C.inp,marginBottom:12}} placeholder="🔍 Cerca azienda o numero..." value={search} onChange={e=>setSearch(e.target.value)}/>
+            {sorted.length===0&&<div style={{...C.card,textAlign:'center',color:'#94a3b8',padding:32}}>Nessun contatto. Il manager deve importare la lista.</div>}
+            {sorted.map(c=>(
+              <div key={c.id} style={{...C.card,borderLeft:isToday(c.callbackDate)?'4px solid #f59e0b':'4px solid transparent'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                  <div style={{flex:1}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:4}}>
+                      <span style={{fontWeight:800,fontSize:14,color:'#0d1b4b'}}>{c.company}</span>
+                      <Badge status={c.status}/>
+                      {isToday(c.callbackDate)&&<span style={{fontSize:11,fontWeight:700,color:'#f59e0b'}}>🔔 Richiama oggi</span>}
+                    </div>
+                    <div style={{fontSize:12,color:'#64748b'}}>{c.phone}{c.city&&` · ${c.city}`}{c.sector&&` · ${c.sector}`}</div>
+                    {c.notes&&<div style={{fontSize:11,color:'#94a3b8',marginTop:3,fontStyle:'italic'}}>"{c.notes}"</div>}
+                    {c.callbackDate&&!isToday(c.callbackDate)&&<div style={{fontSize:11,color:'#f59e0b',marginTop:2}}>📅 {fmtDate(c.callbackDate)}</div>}
+                  </div>
+                  <button onClick={()=>makeCall(c)} style={{...C.btn('sm'),...C.pri,marginLeft:12,whiteSpace:'nowrap'}}>📞 Chiama</button>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+
+        {view==='calling'&&(
+          <div style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'52px 20px',textAlign:'center'}}>
+            <div style={{width:90,height:90,background:callStart?'#eff6ff':'#fff8ed',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:42,marginBottom:22,boxShadow:callStart?'0 0 0 14px rgba(59,130,246,.1),0 0 0 28px rgba(59,130,246,.05)':'none',transition:'all .3s'}}>📞</div>
+            <h2 style={{fontSize:24,fontWeight:800,color:'#0d1b4b',marginBottom:6}}>{curContact?.company}</h2>
+            <p style={{fontSize:15,color:'#64748b',marginBottom:24}}>{curContact?.phone}</p>
+            <div style={{fontSize:48,fontWeight:800,color:'#0d1b4b',fontVariantNumeric:'tabular-nums',marginBottom:6}}>
+              {callStart?<CallTimer startTime={callStart}/>:<span style={{fontSize:16,color:'#94a3b8'}}>Squilla...</span>}
+            </div>
+            <p style={{fontSize:12,color:'#94a3b8',marginBottom:36}}>{callStart?'Chiamata in corso · 🔴 Rec':'In attesa di risposta...'}</p>
+            <div style={{display:'flex',gap:20,alignItems:'center'}}>
+              <button onClick={toggleMute} style={{width:60,height:60,borderRadius:'50%',border:'none',background:muted?'#ef4444':'#f1f5f9',color:muted?'#fff':'#64748b',fontSize:26,cursor:'pointer'}}>{muted?'🔇':'🎤'}</button>
+              <button onClick={hangup} style={{width:78,height:78,borderRadius:'50%',border:'none',background:'#ef4444',color:'#fff',fontSize:34,cursor:'pointer',boxShadow:'0 4px 16px rgba(239,68,68,.4)'}}>📵</button>
+            </div>
+            {muted&&<p style={{marginTop:20,fontSize:12,color:'#ef4444',fontWeight:700}}>🔇 Microfono disattivato</p>}
+          </div>
+        )}
+
+        {view==='outcome'&&(
+          <div style={{maxWidth:500,margin:'0 auto'}}>
+            <div style={C.card}>
+              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16,paddingBottom:14,borderBottom:'1px solid #f1f5f9'}}>
+                <div style={{width:46,height:46,background:'#f0fdf4',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',fontSize:24}}>✅</div>
+                <div>
+                  <div style={{fontWeight:800,fontSize:16,color:'#0d1b4b'}}>{curContact?.company}</div>
+                  <div style={{fontSize:12,color:'#64748b'}}>
+                    {callStart&&pendingEnd?.endTime?`Durata: ${fmtDur(Math.floor((new Date(pendingEnd.endTime)-new Date(callStart))/1000))}`:'Chiamata terminata'}
+                  </div>
+                </div>
+              </div>
+              <label style={C.lbl}>Esito *</label>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:14}}>
+                {OUTCOMES.map(o=>(
+                  <button key={o.key} onClick={()=>setOutcome(o.key)} style={{padding:'10px 12px',borderRadius:8,border:`2px solid ${outcome===o.key?o.color:'#e2e8f0'}`,background:outcome===o.key?o.color+'20':'#fff',color:outcome===o.key?o.color:'#475569',fontWeight:700,fontSize:13,cursor:'pointer',textAlign:'left'}}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              {(outcome==='richiamata'||outcome==='appuntamento')&&(
+                <div style={{marginBottom:12}}>
+                  <label style={C.lbl}>Data ricontatto</label>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                    <input style={C.inp} type="date" value={cbDate} onChange={e=>setCbDate(e.target.value)} min={today()}/>
+                    <input style={C.inp} type="time" value={cbTime} onChange={e=>setCbTime(e.target.value)} placeholder="Orario (opz.)"/>
+                  </div>
+                </div>
+              )}
+              <div style={{marginBottom:14}}>
+                <label style={C.lbl}>Note</label>
+                <textarea style={{...C.inp,height:80,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Note sulla chiamata..."/>
+              </div>
+              <button onClick={saveOutcome} disabled={!outcome} style={{...C.btn('lg',true),...C.suc,opacity:outcome?1:.5}}>
+                💾 Salva e vai al prossimo
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+/* ─── APPOINTMENT MODAL ──────────────────────────────────────── */
+function AppointmentModal({onClose,onSaved}){
+  const [company,setCompany]=useState('');
+  const [contact,setContact]=useState('');
+  const [phone,setPhone]=useState('');
+  const [date,setDate]=useState('');
+  const [time,setTime]=useState('');
+  const [notes,setNotes]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState('');
+
+  const save=async()=>{
+    if(!company.trim())return setErr('Inserisci il nome azienda');
+    if(!date)return setErr('Seleziona una data');
+    setBusy(true);setErr('');
+    try{
+      const r=await fetch('/api/appointment',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({company,contactName:contact,phone,date,time,notes})});
+      let d={};
+      try{d=await r.json();}catch{}
+      if(!r.ok)return setErr('Errore '+(d.error||r.status||'sconosciuto'));
+      onSaved&&onSaved();
+      onClose();
+    }catch(e){setErr('Errore: '+e.message);}
+    setBusy(false);
+  };
+
+  const INP={padding:'9px 12px',borderRadius:8,border:'1.5px solid #e2e8f0',fontSize:13,outline:'none',width:'100%',background:'#fff'};
+  const LBL={fontSize:11,fontWeight:600,color:'#475569',marginBottom:4,display:'block'};
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:480,boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>🗓 Nuovo Appuntamento</h2>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:12}}>
+          <div style={{gridColumn:'1/-1'}}><label style={LBL}>Azienda *</label><input style={INP} value={company} onChange={e=>setCompany(e.target.value)} placeholder="Es. Rossi SRL" autoFocus/></div>
+          <div><label style={LBL}>Referente</label><input style={INP} value={contact} onChange={e=>setContact(e.target.value)} placeholder="Nome cognome"/></div>
+          <div><label style={LBL}>Telefono</label><input style={INP} value={phone} onChange={e=>setPhone(e.target.value)} placeholder="333 1234567"/></div>
+          <div><label style={LBL}>Data *</label><input style={INP} type="date" value={date} onChange={e=>setDate(e.target.value)} min={today()}/></div>
+          <div><label style={LBL}>Orario</label><input style={INP} type="time" value={time} onChange={e=>setTime(e.target.value)}/></div>
+          <div style={{gridColumn:'1/-1'}}><label style={LBL}>Note</label><textarea style={{...INP,height:70,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Motivo, prodotti di interesse..."/></div>
+        </div>
+        {err&&<p style={{color:'#ef4444',fontSize:12,marginBottom:10}}>{err}</p>}
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={save} disabled={busy} style={{flex:1,padding:'12px 0',borderRadius:8,border:'none',background:busy?'#94a3b8':'#22c55e',color:'#fff',fontWeight:700,fontSize:14,cursor:busy?'default':'pointer'}}>
+            {busy?'Salvataggio...':'💾 Salva Appuntamento'}
+          </button>
+          <button onClick={onClose} style={{padding:'12px 18px',borderRadius:8,border:'none',background:'transparent',color:'#64748b',fontWeight:700,cursor:'pointer'}}>Annulla</button>
+        </div>
+        <p style={{fontSize:11,color:'#94a3b8',marginTop:10,textAlign:'center'}}>✓ Verrà aggiunto al Google Calendar automaticamente</p>
+      </div>
+    </div>
+  );
+}
+
+/* ─── MANAGER APP ─────────────────────────────────────────── */
+function ManagerApp({session,onLogout}){
+  const [contacts,setContacts]=useState([]);
+  const [calls,setCalls]=useState([]);
+  const [active,setActive]=useState(null);
+  const [tab,setTab]=useState('live');
+  const [loading,setLoading]=useState(true);
+  const [toast,setToast]=useState(null);
+  const [showApptModal,setShowApptModal]=useState(false);
+
+  const notify=(msg,type='ok')=>{setToast({msg,type});setTimeout(()=>setToast(null),3000)};
+
+  const loadAll=useCallback(async()=>{
+    const[c,cl]=await Promise.all([getData('contacts'),getData('calls')]);
+    setContacts(Array.isArray(c)?c:[]);
+    setCalls(Array.isArray(cl)?cl:[]);
+    setLoading(false);
+  },[]);
+
+  useEffect(()=>{loadAll();const iv=setInterval(loadAll,10000);return()=>clearInterval(iv);},[loadAll]);
+  useEffect(()=>{
+    const poll=async()=>{const a=await getData('active');setActive(a);};
+    poll();const iv=setInterval(poll,5000);return()=>clearInterval(iv);
+  },[]);
+
+  const importContacts=async(list)=>{
+    const phones=new Set(contacts.map(c=>c.phone));
+    const fresh=list.filter(c=>c.phone&&!phones.has(c.phone));
+    const updated=[...contacts,...fresh];
+    setContacts(updated);await setData('contacts',updated);
+    notify(`${fresh.length} contatti importati ✓`);
+  };
+
+  const TABS=[{k:'live',l:'📊 Live'},{k:'history',l:'📋 Storico'},{k:'contacts',l:'👥 Contatti'},{k:'import',l:'📥 Import'}];
+  const todayCalls=calls.filter(c=>c.startTime?.startsWith(today()));
+
+  return(
+    <div style={{fontFamily:"'DM Sans','Segoe UI',sans-serif",background:'#f4f6f9',minHeight:'100vh'}}>
+      <Toast msg={toast?.msg} type={toast?.type}/>
+      {showApptModal&&<AppointmentModal onClose={()=>setShowApptModal(false)} onSaved={()=>notify('Appuntamento salvato ✓')}/>}
+      <header style={C.hdr}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:32,height:32,background:'#3b82f6',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center'}}>📊</div>
+          <div style={{fontSize:15,fontWeight:700}}>👑 {session.name} · Manager</div>
+          {active&&<div style={{display:'flex',alignItems:'center',gap:6,background:'#22c55e',borderRadius:20,padding:'3px 10px',fontSize:12,fontWeight:700}}><span style={{width:7,height:7,borderRadius:'50%',background:'#fff',display:'inline-block'}}/>LIVE</div>}
+        </div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {TABS.map(t=><button key={t.k} onClick={()=>setTab(t.k)} style={C.nb(tab===t.k)}>{t.l}</button>)}
+          <button onClick={()=>{saveS(session);window.location.href='/';}} style={{...C.nb(false)}}>← CRM</button>
+          <button onClick={onLogout} style={{...C.nb(false),background:'rgba(239,68,68,.3)'}}>Esci</button>
+        </div>
+      </header>
+
+      <div style={C.wrap}>
+        {loading&&<div style={{textAlign:'center',color:'#94a3b8',padding:40}}>Caricamento...</div>}
+
+        {!loading&&tab==='live'&&(
+          <>
+            {active&&(
+              <div style={{...C.card,background:'#0d1b4b',color:'#fff',marginBottom:14}}>
+                <div style={{display:'flex',alignItems:'center',gap:14}}>
+                  <div style={{width:52,height:52,background:'#22c55e',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,flexShrink:0}}>📞</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:11,color:'#22c55e',fontWeight:700,marginBottom:2}}>🔴 CHIAMATA IN CORSO</div>
+                    <div style={{fontSize:18,fontWeight:800}}>{active.contactName}</div>
+                    <div style={{fontSize:13,color:'#94a3b8'}}>{active.phone}</div>
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    <div style={{fontSize:36,fontWeight:800,fontVariantNumeric:'tabular-nums'}}><CallTimer startTime={active.startTime}/></div>
+                    <div style={{fontSize:10,color:'#94a3b8'}}>durata</div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:14}}>
+              {[{l:'Chiamate oggi',v:todayCalls.length,i:'📞',c:'#3b82f6'},{l:'Interessati',v:todayCalls.filter(c=>c.outcome==='interessato').length,i:'✅',c:'#22c55e'},{l:'Appuntamenti',v:todayCalls.filter(c=>c.outcome==='appuntamento').length,i:'📅',c:'#8b5cf6'},{l:'Non risp./Seg.',v:todayCalls.filter(c=>['segreteria','non_interessato'].includes(c.outcome)).length,i:'📵',c:'#ef4444'}].map(s=>(
+                <div key={s.l} style={{...C.card,marginBottom:0,textAlign:'center',borderTop:`3px solid ${s.c}`,padding:'12px 10px'}}>
+                  <div style={{fontSize:20,marginBottom:4}}>{s.i}</div>
+                  <div style={{fontSize:24,fontWeight:800,color:s.c}}>{s.v}</div>
+                  <div style={{fontSize:10,color:'#64748b',marginTop:2,fontWeight:600}}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+            {todayCalls.length>0&&(
+              <div style={C.card}>
+                <div style={{fontSize:13,fontWeight:700,color:'#0d1b4b',marginBottom:12}}>📋 Chiamate di oggi</div>
+                {[...todayCalls].reverse().map(call=>(
+                  <div key={call.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid #f8fafc'}}>
+                    <div><div style={{fontWeight:600,fontSize:13}}>{call.contactName||'—'}</div><div style={{fontSize:11,color:'#64748b'}}>{fmtTime(call.startTime)} · {call.phone}{call.duration?` · ${fmtDur(call.duration)}`:''}</div></div>
+                    {call.outcome&&<Badge status={call.outcome}/>}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{display:'flex',justifyContent:'flex-end',marginBottom:12}}><button onClick={()=>setShowApptModal(true)} style={{...C.btn('sm'),...C.suc}}>➕ Nuovo Appuntamento</button></div>
+            {!active&&todayCalls.length===0&&<div style={{...C.card,textAlign:'center',color:'#94a3b8',padding:32}}>Nessuna chiamata ancora oggi.</div>}
+          </>
+        )}
+
+        {!loading&&tab==='history'&&(
+          <HistoryTab calls={calls}/>
+        )}
+
+        {!loading&&tab==='contacts'&&(
+          <ContactsTab contacts={contacts}/>
+        )}
+
+        {!loading&&tab==='import'&&(
+          <ImportTab onImport={importContacts}/>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HistoryTab({calls}){
+  const [search,setSearch]=useState('');
+  const [fOut,setFOut]=useState('tutti');
+  const filtered=[...calls].filter(c=>{
+    const ms=!search||c.contactName?.toLowerCase().includes(search.toLowerCase())||c.phone?.includes(search);
+    const mo=fOut==='tutti'||c.outcome===fOut;
+    return ms&&mo;
+  }).reverse();
+  return(
+    <>
+      <div style={{display:'flex',gap:10,marginBottom:14}}>
+        <input style={{...C.inp,flex:1}} placeholder="🔍 Cerca..." value={search} onChange={e=>setSearch(e.target.value)}/>
+        <select style={{...C.inp,width:'auto',cursor:'pointer'}} value={fOut} onChange={e=>setFOut(e.target.value)}>
+          <option value="tutti">Tutti gli esiti</option>
+          {OUTCOMES.map(o=><option key={o.key} value={o.key}>{o.label}</option>)}
+        </select>
+      </div>
+      <div style={C.card}>
+        {filtered.length===0&&<div style={{textAlign:'center',color:'#94a3b8',padding:24}}>Nessuna chiamata trovata</div>}
+        {filtered.map(call=>(
+          <div key={call.id} style={{padding:'12px 0',borderBottom:'1px solid #f8fafc'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}>
+              <div style={{flex:1}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                  <span style={{fontWeight:700,fontSize:14}}>{call.contactName||'—'}</span>
+                  {call.outcome&&<Badge status={call.outcome}/>}
+                </div>
+                <div style={{fontSize:12,color:'#64748b',marginTop:3}}>{fmtDate(call.startTime)} {fmtTime(call.startTime)} · {call.phone}{call.duration?` · ${fmtDur(call.duration)}`:''}</div>
+                {call.notes&&<div style={{fontSize:12,color:'#94a3b8',marginTop:3,fontStyle:'italic'}}>"{call.notes}"</div>}
+              </div>
+              {call.recordingSid&&<audio controls src={`/api/recording?sid=${call.recordingSid}`} style={{width:200,flexShrink:0}}/>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function ContactsTab({contacts}){
+  const [search,setSearch]=useState('');
+  const [fSt,setFSt]=useState('tutti');
+  const filtered=contacts.filter(c=>{
+    const ms=!search||c.company?.toLowerCase().includes(search.toLowerCase())||c.phone?.includes(search);
+    const mo=fSt==='tutti'||c.status===fSt;
+    return ms&&mo;
+  });
+  return(
+    <>
+      <div style={{display:'flex',gap:10,marginBottom:14}}>
+        <input style={{...C.inp,flex:1}} placeholder="🔍 Cerca..." value={search} onChange={e=>setSearch(e.target.value)}/>
+        <select style={{...C.inp,width:'auto',cursor:'pointer'}} value={fSt} onChange={e=>setFSt(e.target.value)}>
+          <option value="tutti">Tutti gli stati</option>
+          {Object.keys(STATUS_LABEL).map(k=><option key={k} value={k}>{STATUS_LABEL[k]}</option>)}
+        </select>
+      </div>
+      <div style={C.card}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+          <thead><tr>{['Azienda','Telefono','Città','Stato','Note','Ricontatto'].map(h=><th key={h} style={C.th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {filtered.map(c=>(
+              <tr key={c.id}>
+                <td style={C.td}><div style={{fontWeight:700}}>{c.company}</div>{c.contact&&<div style={{fontSize:11,color:'#64748b'}}>{c.contact}</div>}</td>
+                <td style={C.td}>{c.phone}</td>
+                <td style={C.td}>{c.city||'—'}</td>
+                <td style={C.td}><Badge status={c.status}/></td>
+                <td style={{...C.td,maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'#94a3b8'}}>{c.notes||'—'}</td>
+                <td style={{...C.td,color:isToday(c.callbackDate)?'#f59e0b':'#64748b',fontWeight:isToday(c.callbackDate)?700:400}}>{c.callbackDate?fmtDate(c.callbackDate):'—'}</td>
+              </tr>
+            ))}
+            {filtered.length===0&&<tr><td colSpan={6} style={{textAlign:'center',color:'#94a3b8',padding:24}}>Nessun contatto</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+const ATOKA_KEYS={company:['ragione sociale','denominazione','azienda'],phone:['telefono','tel','cellulare'],contact:['referente','contatto'],email:['email','e-mail'],city:['comune','città','city'],province:['provincia','prov'],sector:['descrizione ateco','settore','attivita']};
+function autoDetect(cols){const m={};Object.entries(ATOKA_KEYS).forEach(([f,keys])=>{const h=cols.find(c=>keys.some(k=>c.toLowerCase().includes(k)));if(h)m[f]=h;});return m;}
+
+function ImportTab({onImport}){
+  const [allData,setAllData]=useState([]);
+  const [preview,setPreview]=useState([]);
+  const [cols,setCols]=useState([]);
+  const [map,setMap]=useState({});
+  const [fname,setFname]=useState('');
+  const [busy,setBusy]=useState(false);
+
+  const readFile=(file)=>{
+    if(!file)return;
+    setFname(file.name);
+    const r=new FileReader();
+    r.onload=e=>{
+      const wb=XLSX.read(e.target.result,{type:'binary'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const data=XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!data.length)return;
+      const c=Object.keys(data[0]);
+      setCols(c);setAllData(data);setMap(autoDetect(c));setPreview(data.slice(0,5));
+    };
+    r.readAsBinaryString(file);
+  };
+
+  const doImport=async()=>{
+    setBusy(true);
+    const list=allData.map(row=>({
+      id:uid(),
+      company:(row[map.company]||'').toString().trim(),
+      phone:(row[map.phone]||'').toString().replace(/\s+/g,'').replace(/^00/,'+'),
+      contact:(row[map.contact]||'').toString().trim(),
+      email:(row[map.email]||'').toString().trim(),
+      city:(row[map.city]||'').toString().trim(),
+      province:(row[map.province]||'').toString().trim(),
+      sector:(row[map.sector]||'').toString().trim(),
+      status:'da_chiamare',callbackDate:null,notes:'',
+    })).filter(c=>c.company||c.phone);
+    await onImport(list);
+    setAllData([]);setPreview([]);setCols([]);setFname('');setMap({});
+    setBusy(false);
+  };
+
+  return(
+    <>
+      <div style={{...C.card,border:'2px dashed #e2e8f0',textAlign:'center',padding:32,cursor:'pointer'}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();readFile(e.dataTransfer.files[0]);}} onClick={()=>document.getElementById('xl-inp').click()}>
+        <div style={{fontSize:40,marginBottom:10}}>📥</div>
+        <div style={{fontWeight:700,color:'#0d1b4b',marginBottom:4}}>{fname||'Trascina il file Excel di Atoka'}</div>
+        <div style={{fontSize:12,color:'#94a3b8'}}>oppure clicca · .xlsx .xls .csv</div>
+        <input id="xl-inp" type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}} onChange={e=>readFile(e.target.files[0])}/>
+      </div>
+      {cols.length>0&&(
+        <div style={C.card}>
+          <div style={{fontSize:13,fontWeight:700,color:'#0d1b4b',marginBottom:12}}>Mappatura colonne</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
+            {[['company','Azienda *'],['phone','Telefono *'],['contact','Referente'],['email','Email'],['city','Città'],['sector','Settore']].map(([f,l])=>(
+              <div key={f}>
+                <label style={C.lbl}>{l}</label>
+                <select style={{...C.inp,cursor:'pointer'}} value={map[f]||''} onChange={e=>setMap(m=>({...m,[f]:e.target.value}))}>
+                  <option value="">— Non importare —</option>
+                  {cols.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+          {preview.length>0&&(
+            <div style={{overflowX:'auto',marginBottom:14}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                <thead><tr>{['Azienda','Telefono','Referente','Città'].map(h=><th key={h} style={{...C.th,fontSize:10}}>{h}</th>)}</tr></thead>
+                <tbody>{preview.map((row,i)=><tr key={i}><td style={C.td}>{row[map.company]||'—'}</td><td style={C.td}>{row[map.phone]||'—'}</td><td style={C.td}>{row[map.contact]||'—'}</td><td style={C.td}>{row[map.city]||'—'}</td></tr>)}</tbody>
+              </table>
+            </div>
+          )}
+          <button onClick={doImport} disabled={busy} style={{...C.btn('lg',true),...C.suc,opacity:busy?.7:1}}>
+            {busy?'Importazione...':'📥 Importa '+allData.length+' contatti'}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ─── ROOT ────────────────────────────────────────────────── */
+function App(){
+  const [session,setSession_]=useState(()=>getS());
+
+  const handleLogin=(role,name)=>{
+    const s={role,name};
+    saveS(s);
+    setSession_(s);
+  };
+
+  const logout=()=>{
+    clearS();
+    setSession_(null);
+  };
+
+  if(!session) return <LoginScreen onLogin={handleLogin}/>;
+  if(session.role==='master') return <ManagerApp session={session} onLogout={logout}/>;
+  if(session.role==='agent') return <AgentApp session={session} onLogout={logout}/>;
+  return <LoginScreen onLogin={handleLogin}/>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
