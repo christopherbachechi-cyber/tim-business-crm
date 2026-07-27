@@ -1,0 +1,10 @@
+{
+  "name": "voip-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bridges Asterisk AMI call events to the CRM's /api/data endpoint, and serves call recordings over HTTPS.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  }
+}

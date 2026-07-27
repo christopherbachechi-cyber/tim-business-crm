@@ -10,6 +10,7 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:'DM Sans','Segoe UI',sans-serif;background:#f4f6f9;min-height:100vh;color:#1a1f2e}
@@ -37,11 +38,6 @@ async function apiLogin(username,password){
 }
 
 /* ── CRM DATA ─────────────────────────────────── */
-const DEFAULT_CLIENTS=[
-  {id:1,name:"Rossi SRL",contact:"Mario Rossi",phone:"333 1234567",products:["Fibra Business","Mobile x5"],contractStart:"2022-03-10",contractEnd:"2025-03-10",retiFisse:1,retiMobili:5,centralino:false,trunk:false,notes:"Soddisfatto, possibile upsell cloud",churnRisk:"basso"},
-  {id:2,name:"Studio Bianchi",contact:"Luca Bianchi",phone:"347 9876543",products:["ADSL Business"],contractStart:"2023-06-01",contractEnd:"2025-06-01",retiFisse:1,retiMobili:0,centralino:false,trunk:false,notes:"Ha chiesto info su fibra",churnRisk:"medio"},
-  {id:3,name:"Ferri & C.",contact:"Anna Ferri",phone:"328 5554433",products:["Fibra Business","VoIP"],contractStart:"2021-01-15",contractEnd:"2024-06-20",retiFisse:2,retiMobili:3,centralino:true,trunk:true,notes:"Insoddisfatto assistenza tecnica",churnRisk:"alto"},
-];
 const PRODUCTS=["Fibra Business","ADSL Business","Mobile x1","Mobile x3","Mobile x5","Mobile x10","VoIP","Cloud PBX","Microsoft 365","Cybersecurity","SD-WAN","Energia"];
 const RISK={basso:{color:"#22c55e",bg:"#f0fdf4",label:"Basso"},medio:{color:"#f59e0b",bg:"#fffbeb",label:"Medio"},alto:{color:"#ef4444",bg:"#fef2f2",label:"Alto"}};
 const EMPTY={name:"",contact:"",phone:"",products:[],contractStart:"",contractEnd:"",retiFisse:0,retiMobili:0,centralino:false,trunk:false,notes:"",churnRisk:"basso"};
@@ -51,8 +47,12 @@ function yearsActive(d){if(!d)return null;return(new Date()-new Date(d))/(864000
 function fmt(d){if(!d)return"—";return new Date(d).toLocaleDateString("it-IT",{day:"2-digit",month:"short",year:"numeric"})}
 function fmtTime(d){if(!d)return"—";return new Date(d).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}
 function todayStr(){return new Date().toISOString().split("T")[0]}
-function loadClients(){try{const s=localStorage.getItem(STORAGE_KEY);return s?JSON.parse(s):DEFAULT_CLIENTS}catch{return DEFAULT_CLIENTS}}
-function saveClients(c){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(c))}catch{}}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+
+/* ── ANAGRAFICA CALL CENTER (contatti/prospect, separati dai Clienti) ── */
+const CC_STATUS_LABEL={interessato:'Interessato',non_interessato:'Non interessato',richiamata:'Richiamata',appuntamento:'Appuntamento',segreteria:'Segreteria',da_chiamare:'Da chiamare'};
+const CC_STATUS_COLOR={interessato:'#22c55e',non_interessato:'#ef4444',richiamata:'#f59e0b',appuntamento:'#8b5cf6',segreteria:'#3b82f6',da_chiamare:'#64748b'};
+const CC_STATUS_BG={interessato:'#f0fdf4',non_interessato:'#fef2f2',richiamata:'#fffbeb',appuntamento:'#f5f3ff',segreteria:'#eff6ff',da_chiamare:'#f1f5f9'};
 
 /* ── STYLES ───────────────────────────────────── */
 const S={
@@ -233,9 +233,69 @@ function AppointmentModal({onClose,onSaved}){
   );
 }
 
+/* ── PROSPECT MODAL (anagrafica Call Center: aggiungi/modifica) ── */
+function ProspectModal({initial,onClose,onSaved}){
+  const [company,setCompany]=useState(initial?.company||'');
+  const [contact,setContact]=useState(initial?.contact||'');
+  const [phone,setPhone]=useState(initial?.phone||'');
+  const [email,setEmail]=useState(initial?.email||'');
+  const [city,setCity]=useState(initial?.city||'');
+  const [province,setProvince]=useState(initial?.province||'');
+  const [sector,setSector]=useState(initial?.sector||'');
+  const [status,setStatus]=useState(initial?.status||'da_chiamare');
+  const [callbackDate,setCallbackDate]=useState(initial?.callbackDate||'');
+  const [notes,setNotes]=useState(initial?.notes||'');
+  const [err,setErr]=useState('');
+
+  const save=()=>{
+    if(!company.trim())return setErr('Inserisci il nome azienda');
+    if(!phone.trim())return setErr('Inserisci il numero di telefono');
+    onSaved({
+      id:initial?.id,
+      company:company.trim(),contact:contact.trim(),phone:phone.trim(),email:email.trim(),
+      city:city.trim(),province:province.trim(),sector:sector.trim(),
+      status,callbackDate:callbackDate||null,notes:notes.trim(),
+    });
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:520,boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>{initial?'✏️ Modifica contatto':'➕ Nuovo contatto'}</h2>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:12}}>
+          <div style={{gridColumn:'1/-1'}}><label style={S.lbl}>Azienda *</label><input style={S.inp} value={company} onChange={e=>setCompany(e.target.value)} placeholder="Es. Rossi SRL" autoFocus/></div>
+          <div><label style={S.lbl}>Referente</label><input style={S.inp} value={contact} onChange={e=>setContact(e.target.value)} placeholder="Nome cognome"/></div>
+          <div><label style={S.lbl}>Telefono *</label><input style={S.inp} value={phone} onChange={e=>setPhone(e.target.value)} placeholder="333 1234567"/></div>
+          <div><label style={S.lbl}>Email</label><input style={S.inp} value={email} onChange={e=>setEmail(e.target.value)}/></div>
+          <div><label style={S.lbl}>Città</label><input style={S.inp} value={city} onChange={e=>setCity(e.target.value)}/></div>
+          <div><label style={S.lbl}>Provincia</label><input style={S.inp} value={province} onChange={e=>setProvince(e.target.value)}/></div>
+          <div><label style={S.lbl}>Settore</label><input style={S.inp} value={sector} onChange={e=>setSector(e.target.value)}/></div>
+          <div><label style={S.lbl}>Stato</label>
+            <select style={{...S.inp,cursor:'pointer'}} value={status} onChange={e=>setStatus(e.target.value)}>
+              {Object.keys(CC_STATUS_LABEL).map(k=><option key={k} value={k}>{CC_STATUS_LABEL[k]}</option>)}
+            </select>
+          </div>
+          <div><label style={S.lbl}>Data ricontatto</label><input style={S.inp} type="date" value={callbackDate||''} onChange={e=>setCallbackDate(e.target.value)}/></div>
+          <div style={{gridColumn:'1/-1'}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:70,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)}/></div>
+        </div>
+        {err&&<p style={{color:'#ef4444',fontSize:12,marginBottom:10}}>{err}</p>}
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={save} style={{...S.btn('lg'),...S.suc,flex:1}}>💾 Salva</button>
+          <button onClick={onClose} style={{...S.btn('lg'),...S.gho}}>Annulla</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── CRM APP (master only) ───────────────────── */
 function CrmApp({session,onLogout}){
-  const [clients,setClients]=useState(loadClients);
+  const [clients,setClients]=useState([]);
+  const [clientsLoading,setClientsLoading]=useState(true);
+  const [localBackup,setLocalBackup]=useState(null);
   const [view,setView]=useState("dashboard");
   const [selId,setSelId]=useState(null);
   const [editId,setEditId]=useState(null);
@@ -246,10 +306,45 @@ function CrmApp({session,onLogout}){
   const [appointments,setAppointments]=useState([]);
   const [apptLoading,setApptLoading]=useState(false);
   const [showApptModal,setShowApptModal]=useState(false);
+  const [prospects,setProspects]=useState([]);
+  const [prospectsLoading,setProspectsLoading]=useState(false);
+  const [prospectModalOpen,setProspectModalOpen]=useState(false);
+  const [editProspect,setEditProspect]=useState(null);
+  const [prospectSearch,setProspectSearch]=useState('');
+  const [prospectStatusFilter,setProspectStatusFilter]=useState('tutti');
 
-  const save=(c)=>{setClients(c);saveClients(c)};
   const notify=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),2500)};
   const setFilt=(k,v)=>setF(f=>({...f,[k]:v}));
+
+  const loadClients=useCallback(async()=>{
+    setClientsLoading(true);
+    try{const r=await fetch('/api/data?type=clients');const d=await r.json();setClients(Array.isArray(d)?d:[]);}catch{setClients([]);}
+    setClientsLoading(false);
+  },[]);
+  useEffect(()=>{loadClients();},[loadClients]);
+
+  useEffect(()=>{
+    try{
+      if(localStorage.getItem(STORAGE_KEY+'_dismissed'))return;
+      const raw=localStorage.getItem(STORAGE_KEY);
+      if(raw){const parsed=JSON.parse(raw);if(Array.isArray(parsed)&&parsed.length>0)setLocalBackup(parsed);}
+    }catch{}
+  },[]);
+
+  const save=async(c)=>{
+    setClients(c);
+    await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'clients',data:c})});
+  };
+  const importLocalBackup=async()=>{
+    await save(localBackup);
+    try{localStorage.removeItem(STORAGE_KEY);}catch{}
+    setLocalBackup(null);
+    notify('Clienti locali importati nel cloud ✓');
+  };
+  const dismissLocalBackup=()=>{
+    try{localStorage.setItem(STORAGE_KEY+'_dismissed','1');}catch{}
+    setLocalBackup(null);
+  };
 
   const loadAppointments=useCallback(async()=>{
     setApptLoading(true);
@@ -258,6 +353,50 @@ function CrmApp({session,onLogout}){
   },[]);
 
   useEffect(()=>{if(view==="appuntamenti")loadAppointments();},[view,loadAppointments]);
+
+  const loadProspects=useCallback(async()=>{
+    setProspectsLoading(true);
+    try{const r=await fetch('/api/data?type=contacts');const d=await r.json();setProspects(Array.isArray(d)?d:[]);}catch{setProspects([]);}
+    setProspectsLoading(false);
+  },[]);
+
+  useEffect(()=>{if(view==="prospect")loadProspects();},[view,loadProspects]);
+
+  const saveProspects=async(list)=>{
+    setProspects(list);
+    await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'contacts',data:list})});
+  };
+  const deleteProspect=(id)=>{
+    if(!window.confirm('Eliminare questo contatto?'))return;
+    saveProspects(prospects.filter(p=>p.id!==id));
+    notify('Contatto eliminato');
+  };
+  const handleProspectSaved=(p)=>{
+    if(editProspect){
+      saveProspects(prospects.map(x=>x.id===p.id?p:x));
+      notify('Contatto aggiornato ✓');
+    }else{
+      if(prospects.some(x=>x.phone===p.phone))return notify('Numero già presente','err');
+      saveProspects([...prospects,{...p,id:uid()}]);
+      notify('Contatto aggiunto ✓');
+    }
+    setProspectModalOpen(false);setEditProspect(null);
+  };
+  const exportProspects=()=>{
+    const ws=XLSX.utils.json_to_sheet(prospects.map(p=>({
+      Azienda:p.company,Referente:p.contact,Telefono:p.phone,Email:p.email,
+      Città:p.city,Provincia:p.province,Settore:p.sector,
+      Stato:CC_STATUS_LABEL[p.status]||p.status,Note:p.notes,Ricontatto:p.callbackDate||'',
+    })));
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Contatti');
+    XLSX.writeFile(wb,`contatti_${todayStr()}.xlsx`);
+  };
+  const filteredProspects=prospects.filter(p=>{
+    const ms=!prospectSearch||p.company?.toLowerCase().includes(prospectSearch.toLowerCase())||p.phone?.includes(prospectSearch);
+    const mo=prospectStatusFilter==='tutti'||p.status===prospectStatusFilter;
+    return ms&&mo;
+  });
 
   const handleSave=()=>{
     if(!form.name.trim())return notify("Inserisci il nome cliente","err");
@@ -295,7 +434,7 @@ function CrmApp({session,onLogout}){
   const upcomingAppts=appointments.filter(a=>a.date>=todayStr()).sort((a,b)=>a.date.localeCompare(b.date));
   const pastAppts=appointments.filter(a=>a.date<todayStr()).sort((a,b)=>b.date.localeCompare(a.date));
 
-  const TABS=[{k:"dashboard",l:"📊 Dashboard"},{k:"clienti",l:"👥 Clienti"},{k:"scadenze",l:"📅 Scadenze"},{k:"appuntamenti",l:"🗓 Appuntamenti"}];
+  const TABS=[{k:"dashboard",l:"📊 Dashboard"},{k:"clienti",l:"👥 Clienti"},{k:"prospect",l:"📇 Anagrafica Call Center"},{k:"scadenze",l:"📅 Scadenze"},{k:"appuntamenti",l:"🗓 Appuntamenti"}];
 
   const FSel=({label,fkey,opts})=>(
     <div>
@@ -310,6 +449,7 @@ function CrmApp({session,onLogout}){
     <div style={S.app}>
       {toast&&<div style={S.toast(toast.type)}>{toast.msg}</div>}
       {showApptModal&&<AppointmentModal onClose={()=>setShowApptModal(false)} onSaved={()=>{loadAppointments();notify('Appuntamento salvato ✓');}}/>}
+      {prospectModalOpen&&<ProspectModal initial={editProspect} onClose={()=>{setProspectModalOpen(false);setEditProspect(null);}} onSaved={handleProspectSaved}/>}
       <header style={S.hdr}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:32,height:32,background:"#3b82f6",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>📱</div>
@@ -332,6 +472,17 @@ function CrmApp({session,onLogout}){
       </header>
 
       <div style={S.wrap}>
+        {localBackup&&(
+          <div style={{...S.card,background:"#fffbeb",borderLeft:"4px solid #f59e0b",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+            <div style={{fontSize:13,color:"#475569"}}>
+              📦 Abbiamo trovato <strong>{localBackup.length}</strong> client{localBackup.length===1?"e":"i"} salvat{localBackup.length===1?"o":"i"} solo su questo browser. Vuoi importarli nel cloud (visibili da qualsiasi dispositivo)?
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={importLocalBackup} style={{...S.btn("sm"),...S.suc}}>☁️ Importa nel cloud</button>
+              <button onClick={dismissLocalBackup} style={{...S.btn("sm"),...S.gho}}>Ignora</button>
+            </div>
+          </div>
+        )}
 
         {view==="dashboard"&&(
           <>
@@ -375,7 +526,11 @@ function CrmApp({session,onLogout}){
           </>
         )}
 
-        {view==="clienti"&&!selId&&(
+        {view==="clienti"&&!selId&&clientsLoading&&(
+          <div style={{textAlign:"center",color:"#94a3b8",padding:40}}>Caricamento...</div>
+        )}
+
+        {view==="clienti"&&!selId&&!clientsLoading&&(
           <>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>Clienti ({filtered.length})</h2>
@@ -433,6 +588,58 @@ function CrmApp({session,onLogout}){
                 <button style={{...S.btn("lg"),...S.dan}} onClick={()=>handleDelete(sel.id)}>🗑 Elimina</button>
               </div>
             </div>
+          </>
+        )}
+
+        {view==="prospect"&&(
+          <>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>📇 Anagrafica Call Center ({filteredProspects.length})</h2>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>{setEditProspect(null);setProspectModalOpen(true);}} style={{...S.btn("sm"),...S.suc}}>➕ Nuovo Contatto</button>
+                <button onClick={loadProspects} style={{...S.btn("sm"),...S.pri}}>🔄 Aggiorna</button>
+                <button onClick={exportProspects} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0"}}>⬇️ Esporta Excel</button>
+              </div>
+            </div>
+            <div style={{...S.card,padding:"12px 14px",display:"flex",gap:10,flexWrap:"wrap"}}>
+              <input style={{...S.inp,flex:1,minWidth:180}} placeholder="🔍 Cerca azienda o numero..." value={prospectSearch} onChange={e=>setProspectSearch(e.target.value)}/>
+              <select style={{...S.sel,width:"auto"}} value={prospectStatusFilter} onChange={e=>setProspectStatusFilter(e.target.value)}>
+                <option value="tutti">Tutti gli stati</option>
+                {Object.keys(CC_STATUS_LABEL).map(k=><option key={k} value={k}>{CC_STATUS_LABEL[k]}</option>)}
+              </select>
+            </div>
+            {prospectsLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:32}}>Caricamento...</div>}
+            {!prospectsLoading&&filteredProspects.length===0&&(
+              <div style={{...S.card,textAlign:"center",color:"#94a3b8",padding:40}}>
+                <div style={{fontSize:36,marginBottom:10}}>📇</div>
+                <div style={{fontWeight:700,marginBottom:6}}>Nessun contatto</div>
+                <div style={{fontSize:12}}>I contatti aggiunti dal Call Center appariranno qui automaticamente.</div>
+              </div>
+            )}
+            {!prospectsLoading&&filteredProspects.length>0&&(
+              <div style={S.card}>
+                <table style={S.tbl}>
+                  <thead><tr>{["Azienda","Telefono","Città","Settore","Stato","Note","Ricontatto",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {filteredProspects.map(p=>(
+                      <tr key={p.id}>
+                        <td style={S.td}><div style={{fontWeight:700}}>{p.company}</div>{p.contact&&<div style={{fontSize:11,color:"#64748b"}}>{p.contact}</div>}</td>
+                        <td style={S.td}>{p.phone}</td>
+                        <td style={S.td}>{p.city||"—"}</td>
+                        <td style={S.td}>{p.sector||"—"}</td>
+                        <td style={S.td}><span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:CC_STATUS_BG[p.status]||"#f1f5f9",color:CC_STATUS_COLOR[p.status]||"#64748b"}}>{CC_STATUS_LABEL[p.status]||p.status}</span></td>
+                        <td style={{...S.td,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#94a3b8"}}>{p.notes||"—"}</td>
+                        <td style={S.td}>{p.callbackDate?fmt(p.callbackDate):"—"}</td>
+                        <td style={{...S.td,whiteSpace:"nowrap"}}>
+                          <button onClick={()=>{setEditProspect(p);setProspectModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
+                          <button onClick={()=>deleteProspect(p.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
 
