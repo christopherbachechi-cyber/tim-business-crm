@@ -1,4 +1,4 @@
-const { sheetsRead, sheetsWrite } = require('./_sheets');
+const { sheetsReadList, sheetsWriteList } = require('./_sheets');
 const { google } = require('googleapis');
 
 const H = {
@@ -24,10 +24,9 @@ exports.handler = async (event) => {
     };
 
     // ── Save to Sheets ────────────────────────────────────────────
-    const raw = await sheetsRead('appointments');
-    const list = raw ? JSON.parse(raw) : [];
+    const list = await sheetsReadList('appointments');
     list.push(appt);
-    await sheetsWrite('appointments', JSON.stringify(list));
+    await sheetsWriteList('appointments', list);
 
     // ── Google Calendar (optional) ────────────────────────────────
     let googleEventId = null;
@@ -69,11 +68,8 @@ exports.handler = async (event) => {
         googleEventId = res.data.id;
 
         // Update record with event ID
-        const raw2 = await sheetsRead('appointments');
-        const list2 = raw2 ? JSON.parse(raw2) : [];
-        await sheetsWrite('appointments', JSON.stringify(
-          list2.map(a => a.id === appt.id ? { ...a, googleEventId } : a)
-        ));
+        const list2 = await sheetsReadList('appointments');
+        await sheetsWriteList('appointments', list2.map(a => a.id === appt.id ? { ...a, googleEventId } : a));
       } catch (gcErr) {
         console.error('Google Calendar (non-fatal):', gcErr.message);
       }
