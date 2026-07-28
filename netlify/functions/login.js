@@ -5,10 +5,12 @@ exports.handler = async (event) => {
   try {
     const { username, password } = JSON.parse(event.body || '{}');
 
-    const masterUser = process.env.MASTER_USER     || 'christopher';
-    const masterPass = process.env.MASTER_PASSWORD || 'master1234';
-    const agentUser  = process.env.AGENT_USER      || 'agente';
-    const agentPass  = process.env.AGENT_PASSWORD  || 'agente1234';
+    const { MASTER_USER: masterUser, MASTER_PASSWORD: masterPass, AGENT_USER: agentUser, AGENT_PASSWORD: agentPass } = process.env;
+
+    if (!masterUser || !masterPass || !agentUser || !agentPass) {
+      console.error('login.js: credenziali non configurate su Netlify (MASTER_USER/MASTER_PASSWORD/AGENT_USER/AGENT_PASSWORD)');
+      return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: 'Autenticazione non configurata' }) };
+    }
 
     if (username && password) {
       if (username.toLowerCase() === masterUser.toLowerCase() && password === masterPass) {
