@@ -88,7 +88,7 @@ const S={
   sel:{padding:"8px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"#fff",cursor:"pointer",color:"#1a1f2e",width:"100%"},
   lbl:{fontSize:11,fontWeight:600,color:"#475569",marginBottom:4,display:"block"},
   nb:(a)=>({padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,background:a?"#3b82f6":"rgba(255,255,255,.12)",color:"#fff"}),
-  btn:(v)=>({padding:v==="sm"?"5px 10px":v==="lg"?"12px 20px":"9px 16px",borderRadius:8,border:"none",cursor:"pointer",fontSize:v==="sm"?12:13,fontWeight:700}),
+  btn:(v)=>({padding:v==="sm"?"6px 12px":v==="lg"?"12px 20px":"9px 16px",borderRadius:8,border:"none",cursor:"pointer",fontSize:v==="sm"?12:13,fontWeight:700}),
   pri:{background:"#3b82f6",color:"#fff"},
   suc:{background:"#22c55e",color:"#fff"},
   dan:{background:"#fee2e2",color:"#ef4444"},
@@ -1077,7 +1077,8 @@ function CrmApp({session,onLogout}){
     if(F.retiFisse==="2"&&cnt.retiFisseTotale!==2)return false;if(F.retiFisse==="3+"&&cnt.retiFisseTotale<3)return false;
     if(F.retiMobili==="0"&&cnt.mobiliTotale!==0)return false;if(F.retiMobili==="1-3"&&!(cnt.mobiliTotale>=1&&cnt.mobiliTotale<=3))return false;
     if(F.retiMobili==="4-9"&&!(cnt.mobiliTotale>=4&&cnt.mobiliTotale<=9))return false;if(F.retiMobili==="10+"&&cnt.mobiliTotale<10)return false;
-    if(F.trunk==="si"&&cnt.trunk===0)return false;if(F.trunk==="no"&&cnt.trunk>0)return false;
+    const linProfili=cnt.tce+cnt.trunk+cnt.timComunica;
+    if(F.trunk==="si"&&linProfili===0)return false;if(F.trunk==="no"&&linProfili>0)return false;
     return true;
   };
 
@@ -1113,7 +1114,7 @@ function CrmApp({session,onLogout}){
           <div style={{width:32,height:32,background:"#3b82f6",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>📱</div>
           <div>
             <div style={{fontSize:15,fontWeight:700}}>TIM Business CRM</div>
-            <div style={{fontSize:10,color:"#94a3b8"}}>👑 {session.name} · Master</div>
+            <div style={{fontSize:10,color:"#94a3b8"}}>{session.name} · Master</div>
           </div>
         </div>
         <nav style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
@@ -1123,7 +1124,11 @@ function CrmApp({session,onLogout}){
               {t.k==="appuntamenti"&&todayAppts.length>0&&<span style={{marginLeft:5,background:"#ef4444",borderRadius:10,padding:"1px 6px",fontSize:10}}>{todayAppts.length}</span>}
             </button>
           ))}
-          <button style={S.nb(view==="form"&&!editId)} onClick={()=>{setEditId(null);setForm(EMPTY);setNewClientCart([]);setView("form");}}>+ Aggiungi</button>
+          <div style={{width:1,alignSelf:"stretch",background:"rgba(255,255,255,.15)",margin:"0 4px"}}/>
+          <button
+            style={{padding:"7px 10px",borderRadius:8,border:"1.5px solid rgba(255,255,255,.3)",cursor:"pointer",fontSize:12,fontWeight:700,background:"transparent",color:"#fff"}}
+            onClick={()=>{setEditId(null);setForm(EMPTY);setNewClientCart([]);setView("form");}}
+          >+ Aggiungi</button>
           <a href="/callcenter.html" style={{padding:"7px 12px",borderRadius:8,fontSize:12,fontWeight:700,background:"#22c55e",color:"#fff",textDecoration:"none"}}>📞 Call Center</a>
           <button onClick={()=>{clearSession();onLogout();}} style={{...S.nb(false),background:"rgba(239,68,68,.3)"}}>Esci</button>
         </nav>
@@ -1145,7 +1150,7 @@ function CrmApp({session,onLogout}){
         {view==="dashboard"&&(
           <>
             <div style={{marginBottom:16}}>
-              <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>Benvenuto, {session.name} 👋</h2>
+              <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>Benvenuto, {session.name}</h2>
               <p style={{fontSize:12,color:"#64748b",marginTop:3}}>Riepilogo del tuo portafoglio</p>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:14}}>
@@ -1196,12 +1201,13 @@ function CrmApp({session,onLogout}){
             <div style={{...S.card,padding:"12px 14px"}}>
               <input style={{...S.inp,marginBottom:10}} placeholder="🔍 Cerca..." value={search} onChange={e=>setSearch(e.target.value)}/>
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-                {[["attivoDa","Attivo da",[["tutti","Tutti"],["lt1","<1 anno"],["1-2","1-2 anni"],["2-3","2-3 anni"],["gt3",">3 anni"]]],["retiFisse","Reti fisse",[["tutti","Tutte"],["0","0"],["1","1"],["2","2"],["3+","3+"]]],["retiMobili","Reti mobili",[["tutti","Tutte"],["0","0"],["1-3","1-3"],["4-9","4-9"],["10+","10+"]]],["trunk","Trunk",[["tutti","Tutti"],["si","Sì"],["no","No"]]]].map(([fkey,label,opts])=>(
+                {[["attivoDa","Attivo da",[["tutti","Tutti"],["lt1","<1 anno"],["1-2","1-2 anni"],["2-3","2-3 anni"],["gt3",">3 anni"]]],["retiFisse","Linee fisse",[["tutti","Tutte"],["0","0"],["1","1"],["2","2"],["3+","3+"]]],["retiMobili","Linee mobili",[["tutti","Tutte"],["0","0"],["1-3","1-3"],["4-9","4-9"],["10+","10+"]]],["trunk","Linee profili",[["tutti","Tutti"],["si","Sì"],["no","No"]]]].map(([fkey,label,opts])=>(
                   <FSel key={fkey} label={label} fkey={fkey} opts={opts}/>
                 ))}
               </div>
             </div>
             <div style={S.card}>
+              <div style={{overflowX:"auto"}}>
               <table style={S.tbl}>
                 <thead><tr>{["Cliente","Stipula → Scad.","Linee fisse","Linee mobili","Linee profili","Energia","Rischio",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                 <tbody>
@@ -1223,6 +1229,7 @@ function CrmApp({session,onLogout}){
                   {filtered.length===0&&<tr><td colSpan={8} style={{...S.td,textAlign:"center",color:"#94a3b8",padding:24}}>Nessun cliente trovato</td></tr>}
                 </tbody>
               </table>
+              </div>
             </div>
           </>
         )}
@@ -1243,7 +1250,7 @@ function CrmApp({session,onLogout}){
 
             <div style={S.card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
-                <div><h2 style={{fontSize:20,fontWeight:800,color:"#0d1b4b"}}>{sel.name}</h2><p style={{fontSize:12,color:"#64748b",marginTop:3}}>{sel.contact} · {sel.phone}</p></div>
+                <div><h2 style={{fontSize:20,fontWeight:800,color:"#0d1b4b"}}>{sel.name}</h2><p style={{fontSize:12,color:"#64748b",marginTop:3}}>{[sel.contact,sel.phone].filter(Boolean).join(" · ")}</p></div>
                 <div style={{display:"flex",gap:8,alignItems:"center"}}>
                   {isSeniorClient(sel.contractStart)&&<span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#eff6ff",color:"#3b82f6"}}>🕐 Cliente da {Math.floor((Date.now()-new Date(sel.contractStart))/(86400000*30.44))} mesi</span>}
                   <span style={S.badge(sel.churnRisk)}>Rischio {RISK[sel.churnRisk]?.label}</span>
@@ -1289,6 +1296,7 @@ function CrmApp({session,onLogout}){
               {servicesLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:20}}>Caricamento...</div>}
               {!servicesLoading&&svc.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:20,fontSize:13}}>Nessun servizio ancora. Usa "➕ Aggiungi vendita".</div>}
               {!servicesLoading&&svc.length>0&&(
+                <div style={{overflowX:"auto"}}>
                 <table style={S.tbl}>
                   <thead><tr>{["Categoria","Profilo","Tipologia","Numero","Prezzo","Stato","Note",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                   <tbody>
@@ -1302,14 +1310,15 @@ function CrmApp({session,onLogout}){
                         <td style={S.td}>{SERVICE_STATUS_LABEL[s.status]||s.status}</td>
                         <td style={{...S.td,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#94a3b8"}}>{s.notes||"—"}</td>
                         <td style={{...S.td,whiteSpace:"nowrap"}}>
-                          <button onClick={()=>setDocsService(s)} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0",marginRight:6}}>📎</button>
-                          <button onClick={()=>setEditService(s)} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
+                          <button onClick={()=>setDocsService(s)} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0",marginRight:8}}>📎</button>
+                          <button onClick={()=>setEditService(s)} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
                           <button onClick={()=>deleteService(s.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
 
@@ -1327,7 +1336,7 @@ function CrmApp({session,onLogout}){
                     <div style={{fontSize:12,color:"#64748b"}}>{[r.phone,r.email].filter(Boolean).join(" · ")||"—"}</div>
                   </div>
                   <div>
-                    <button onClick={()=>{setEditReferente(r);setShowReferenteModal(true);}} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
+                    <button onClick={()=>{setEditReferente(r);setShowReferenteModal(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
                     <button onClick={()=>deleteReferente(r.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
                   </div>
                 </div>
@@ -1349,7 +1358,7 @@ function CrmApp({session,onLogout}){
                       <div style={{fontSize:12,color:"#64748b"}}>{o.reason}{o.dueDate&&` · ${fmt(o.dueDate)}`}</div>
                     </div>
                     <div style={{whiteSpace:"nowrap"}}>
-                      <button onClick={()=>{setEditOpp(o);setOppPrefill(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
+                      <button onClick={()=>{setEditOpp(o);setOppPrefill(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
                       <button onClick={()=>deleteOpp(o.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
                     </div>
                   </div>
@@ -1408,6 +1417,7 @@ function CrmApp({session,onLogout}){
             )}
             {!prospectsLoading&&filteredProspects.length>0&&(
               <div style={S.card}>
+                <div style={{overflowX:"auto"}}>
                 <table style={S.tbl}>
                   <thead><tr>{["Azienda","Telefono","Città","Settore","Stato","Note","Ricontatto",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                   <tbody>
@@ -1416,18 +1426,19 @@ function CrmApp({session,onLogout}){
                         <td style={S.td}><div style={{fontWeight:700}}>{p.company}</div>{p.contact&&<div style={{fontSize:11,color:"#64748b"}}>{p.contact}</div>}</td>
                         <td style={S.td}>{p.phone}</td>
                         <td style={S.td}>{p.city||"—"}</td>
-                        <td style={S.td}>{p.sector||"—"}</td>
+                        <td style={{...S.td,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={p.sector||""}>{p.sector||"—"}</td>
                         <td style={S.td}><span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:CC_STATUS_BG[p.status]||"#f1f5f9",color:CC_STATUS_COLOR[p.status]||"#64748b"}}>{CC_STATUS_LABEL[p.status]||p.status}</span></td>
                         <td style={{...S.td,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#94a3b8"}}>{p.notes||"—"}</td>
                         <td style={S.td}>{p.callbackDate?fmt(p.callbackDate):"—"}</td>
                         <td style={{...S.td,whiteSpace:"nowrap"}}>
-                          <button onClick={()=>{setEditProspect(p);setProspectModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
+                          <button onClick={()=>{setEditProspect(p);setProspectModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
                           <button onClick={()=>deleteProspect(p.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
           </>
@@ -1459,6 +1470,7 @@ function CrmApp({session,onLogout}){
             )}
             {!leadsLoading&&filteredLeads.length>0&&(
               <div style={S.card}>
+                <div style={{overflowX:"auto"}}>
                 <table style={S.tbl}>
                   <thead><tr>{["Azienda","Telefono","Servizio interesse","Stato","Ricontatto",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                   <tbody>
@@ -1470,14 +1482,15 @@ function CrmApp({session,onLogout}){
                         <td style={S.td}><span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:LEAD_STATUS_BG[l.status]||"#f1f5f9",color:LEAD_STATUS_COLOR[l.status]||"#64748b"}}>{LEAD_STATUS_LABEL[l.status]||l.status}</span></td>
                         <td style={S.td}>{l.callbackDate?fmt(l.callbackDate):"—"}</td>
                         <td style={{...S.td,whiteSpace:"nowrap"}}>
-                          <button onClick={()=>{setOppPrefill({leadId:l.id});setEditOpp(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.suc,marginRight:6}}>💡</button>
-                          <button onClick={()=>{setEditLead(l);setLeadModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
+                          <button onClick={()=>{setOppPrefill({leadId:l.id});setEditOpp(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.suc,marginRight:8}}>💡</button>
+                          <button onClick={()=>{setEditLead(l);setLeadModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
                           <button onClick={()=>deleteLead(l.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
           </>
@@ -1499,6 +1512,7 @@ function CrmApp({session,onLogout}){
             )}
             {!oppLoading&&opportunita.length>0&&(
               <div style={S.card}>
+                <div style={{overflowX:"auto"}}>
                 <table style={S.tbl}>
                   <thead><tr>{["Cliente/Lead","Servizio","Motivo","Data prevista","Stato",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                   <tbody>
@@ -1515,7 +1529,7 @@ function CrmApp({session,onLogout}){
                           </td>
                           <td style={S.td}><span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:OPP_STATUS_BG[o.status]||"#f1f5f9",color:OPP_STATUS_COLOR[o.status]||"#64748b"}}>{OPP_STATUS_LABEL[o.status]||o.status}</span></td>
                           <td style={{...S.td,whiteSpace:"nowrap"}}>
-                            <button onClick={()=>{setEditOpp(o);setOppPrefill(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
+                            <button onClick={()=>{setEditOpp(o);setOppPrefill(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
                             <button onClick={()=>deleteOpp(o.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
                           </td>
                         </tr>
@@ -1523,6 +1537,7 @@ function CrmApp({session,onLogout}){
                     })}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
           </>
