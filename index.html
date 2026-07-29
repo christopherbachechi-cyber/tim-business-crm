@@ -45,7 +45,7 @@ const EMPTY={name:"",contact:"",phone:"",contractStart:"",contractEnd:"",notes:"
 const EMPTY_REFERENTE={name:"",role:"",phone:"",email:"",notes:""};
 const SERVICE_STATUS_LABEL={attivo:"Attivo","in attivazione":"In attivazione",cessato:"Cessato"};
 const CATEGORY_LABEL={fissa:"Rete fissa",mobile:"Mobile",aggiuntivo:"Reti fisse profili",energia:"Energia"};
-const FLAG_LABEL={voceInternet:"Voce+Internet",soloInternet:"Solo Internet",backup:"Backup",casa:"Casa",voceDati:"Voce+Dati",soloDati:"Solo Dati",numeroVariabile:"Numero Variabile",axpo:"Axpo"};
+const FLAG_LABEL={voceInternet:"Voce+Internet",soloInternet:"Solo Internet",backup:"Backup",casa:"Casa",voceDati:"Voce+Dati",soloDati:"Solo Dati",numeroVariabile:"Numero Sostituibile",axpo:"Axpo"};
 
 function daysUntil(d){return Math.ceil((new Date(d)-new Date())/86400000)}
 function yearsActive(d){if(!d)return null;return(new Date()-new Date(d))/(86400000*365)}
@@ -72,6 +72,10 @@ const OPP_STATUS_BG={aperta:'#eff6ff',vinta:'#f0fdf4',persa:'#fef2f2'};
 function describeServiceFlags(s){
   const active=Object.keys(FLAG_LABEL).filter(f=>s[f]).map(f=>FLAG_LABEL[f]);
   return active.length?` (${active.join(', ')})`:'';
+}
+function flagsList(s){
+  const active=Object.keys(FLAG_LABEL).filter(f=>s[f]).map(f=>FLAG_LABEL[f]);
+  return active.length?active.join(', '):'—';
 }
 
 /* ── STYLES ───────────────────────────────────── */
@@ -651,6 +655,113 @@ function OpportunitaModal({initial,prefill,clients,leads,onClose,onSaved}){
   );
 }
 
+/* ── DOCUMENTI E ALLEGATI (Google Drive) — condiviso tra scheda cliente e singola linea di servizio ── */
+const MAX_UPLOAD_BYTES=4*1024*1024;
+function formatBytes(n){
+  if(!n)return"—";
+  const kb=Number(n)/1024;
+  if(kb<1024)return`${kb.toFixed(0)} KB`;
+  return`${(kb/1024).toFixed(1)} MB`;
+}
+
+function DocumentsPanel({clientId,serviceId}){
+  const [files,setFiles]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [uploading,setUploading]=useState(false);
+  const [err,setErr]=useState('');
+  const [notConnected,setNotConnected]=useState(false);
+
+  const load=useCallback(async()=>{
+    setLoading(true);
+    try{
+      const qs=new URLSearchParams({clientId,...(serviceId?{serviceId}:{})});
+      const r=await fetch(`/api/documents?${qs}`);
+      const d=await r.json();
+      if(!r.ok&&d.code==='drive_not_connected'){setNotConnected(true);setFiles([]);}
+      else{setNotConnected(false);setFiles(Array.isArray(d)?d:[]);}
+    }catch{setFiles([]);}
+    setLoading(false);
+  },[clientId,serviceId]);
+  useEffect(()=>{load();},[load]);
+
+  if(notConnected){
+    return(
+      <div style={{textAlign:'center',color:'#64748b',padding:16,fontSize:13}}>
+        <p style={{marginBottom:10}}>Google Drive non è ancora collegato.</p>
+        <a href="/api/drive-auth-start" target="_blank" rel="noreferrer" style={{...S.btn('sm'),...S.pri,textDecoration:'none',display:'inline-block'}}>🔗 Collega Google Drive</a>
+      </div>
+    );
+  }
+
+  const onFileChange=async(e)=>{
+    const file=e.target.files[0];
+    e.target.value='';
+    if(!file)return;
+    if(file.size>MAX_UPLOAD_BYTES)return setErr('File troppo grande (massimo 4MB)');
+    setErr('');setUploading(true);
+    try{
+      const dataBase64=await new Promise((resolve,reject)=>{
+        const reader=new FileReader();
+        reader.onload=()=>resolve(reader.result.split(',')[1]);
+        reader.onerror=reject;
+        reader.readAsDataURL(file);
+      });
+      const r=await fetch('/api/documents',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({clientId,serviceId:serviceId||undefined,filename:file.name,mimeType:file.type,dataBase64})});
+      const d=await r.json();
+      if(!r.ok){
+        if(d.code==='drive_not_connected'){setNotConnected(true);setUploading(false);return;}
+        throw new Error(d.error||'Errore upload');
+      }
+      setFiles(f=>[...f,d]);
+    }catch(e){setErr('Errore: '+e.message);}
+    setUploading(false);
+  };
+
+  const trash=async(fileId)=>{
+    if(!window.confirm('Cestinare questo documento? (recuperabile dal Cestino di Drive)'))return;
+    try{
+      await fetch(`/api/documents?fileId=${fileId}`,{method:'DELETE'});
+      setFiles(f=>f.filter(x=>x.id!==fileId));
+    }catch{}
+  };
+
+  return(
+    <div>
+      <label style={{...S.btn('sm'),...S.suc,cursor:'pointer',display:'inline-block',marginBottom:14}}>
+        {uploading?'Caricamento...':'➕ Carica documento'}
+        <input type="file" onChange={onFileChange} disabled={uploading} style={{display:'none'}}/>
+      </label>
+      {err&&<p style={{color:'#ef4444',fontSize:12,marginBottom:10}}>{err}</p>}
+      {loading&&<div style={{textAlign:'center',color:'#94a3b8',padding:16}}>Caricamento...</div>}
+      {!loading&&files.length===0&&<div style={{textAlign:'center',color:'#94a3b8',padding:16,fontSize:13}}>Nessun documento ancora.</div>}
+      {files.map(f=>(
+        <div key={f.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid #f8fafc'}}>
+          <div>
+            <a href={f.webViewLink} target="_blank" rel="noreferrer" style={{fontWeight:700,fontSize:13,color:'#3b82f6',textDecoration:'none'}}>📄 {f.name}</a>
+            <div style={{fontSize:11,color:'#94a3b8'}}>{formatBytes(f.size)} · {fmt(f.createdTime)}</div>
+          </div>
+          <button onClick={()=>trash(f.id)} style={{...S.btn('sm'),...S.dan}}>🗑</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DocumentsModal({clientId,serviceId,title,onClose}){
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:480,maxHeight:'80vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>📎 {title}</h2>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
+        </div>
+        <DocumentsPanel clientId={clientId} serviceId={serviceId}/>
+      </div>
+    </div>
+  );
+}
+
 /* ── CRM APP (master only) ───────────────────── */
 function CrmApp({session,onLogout}){
   const [clients,setClients]=useState([]);
@@ -681,6 +792,7 @@ function CrmApp({session,onLogout}){
   const [showReferenteModal,setShowReferenteModal]=useState(false);
   const [editReferente,setEditReferente]=useState(null);
   const [editService,setEditService]=useState(null);
+  const [docsService,setDocsService]=useState(null);
   const [leads,setLeads]=useState([]);
   const [leadsLoading,setLeadsLoading]=useState(true);
   const [leadModalOpen,setLeadModalOpen]=useState(false);
@@ -1127,6 +1239,7 @@ function CrmApp({session,onLogout}){
             {showCartModal&&<CartModal onClose={()=>setShowCartModal(false)} onSaved={handleCartSaved}/>}
             {showReferenteModal&&<ReferenteModal initial={editReferente} onClose={()=>{setShowReferenteModal(false);setEditReferente(null);}} onSaved={handleReferenteSaved}/>}
             {editService&&<ServiceModal service={editService} onClose={()=>setEditService(null)} onSaved={handleServiceSaved}/>}
+            {docsService&&<DocumentsModal clientId={selId} serviceId={docsService.id} title={`${CATEGORY_LABEL[docsService.category]} — ${docsService.profile}`} onClose={()=>setDocsService(null)}/>}
 
             <div style={S.card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
@@ -1158,7 +1271,7 @@ function CrmApp({session,onLogout}){
                 </div>
                 <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
                   <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Mobile — totale {cnt.mobiliTotale}</div>
-                  <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>Voce+Dati: <strong>{cnt.voceDati}</strong> · Solo Dati: <strong>{cnt.soloDati}</strong> · Numero Variabile: <strong>{cnt.numeroVariabile}</strong></div>
+                  <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>Voce+Dati: <strong>{cnt.voceDati}</strong> · Solo Dati: <strong>{cnt.soloDati}</strong> · Numero Sostituibile: <strong>{cnt.numeroVariabile}</strong></div>
                 </div>
                 <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
                   <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Reti fisse profili</div>
@@ -1177,17 +1290,19 @@ function CrmApp({session,onLogout}){
               {!servicesLoading&&svc.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:20,fontSize:13}}>Nessun servizio ancora. Usa "➕ Aggiungi vendita".</div>}
               {!servicesLoading&&svc.length>0&&(
                 <table style={S.tbl}>
-                  <thead><tr>{["Categoria","Profilo","Numero","Prezzo","Stato","Note",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["Categoria","Profilo","Tipologia","Numero","Prezzo","Stato","Note",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                   <tbody>
                     {svc.map(s=>(
                       <tr key={s.id}>
                         <td style={S.td}>{CATEGORY_LABEL[s.category]}</td>
                         <td style={S.td}><strong>{s.profile}</strong></td>
+                        <td style={{...S.td,fontSize:12,color:"#475569"}}>{flagsList(s)}</td>
                         <td style={S.td}>{s.phone||"—"}</td>
                         <td style={S.td}>{s.price?`€ ${s.price}`:"—"}</td>
                         <td style={S.td}>{SERVICE_STATUS_LABEL[s.status]||s.status}</td>
                         <td style={{...S.td,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#94a3b8"}}>{s.notes||"—"}</td>
                         <td style={{...S.td,whiteSpace:"nowrap"}}>
+                          <button onClick={()=>setDocsService(s)} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0",marginRight:6}}>📎</button>
                           <button onClick={()=>setEditService(s)} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
                           <button onClick={()=>deleteService(s.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
                         </td>
@@ -1256,6 +1371,11 @@ function CrmApp({session,onLogout}){
                   <div style={{fontSize:10,color:"#94a3b8",marginTop:2}}>{fmt(t.date)} {fmtTime(t.date)} · {t.user}</div>
                 </div>
               ))}
+            </div>
+
+            <div style={S.card}>
+              <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>📎 Documenti e allegati</div>
+              <DocumentsPanel clientId={selId}/>
             </div>
           </>
           );

@@ -91,6 +91,7 @@ const SCHEMAS = {
     ['contractEnd', 'string', 'Scadenza'],
     ['notes', 'string', 'Note'],
     ['churnRisk', 'string', 'Rischio churn'],
+    ['driveFolderId', 'raw', 'ID Cartella Drive'],
   ],
   services: [
     ['id', 'raw', 'ID'],
@@ -112,7 +113,7 @@ const SCHEMAS = {
     ['axpo', 'boolean', 'Axpo'],
     ['pod', 'nullable', 'POD'],
     ['pdr', 'nullable', 'PDR'],
-    ['price', 'text', 'Prezzo'],
+    ['price', 'nullable', 'Prezzo'],
   ],
   referenti: [
     ['id', 'raw', 'ID'],
@@ -160,31 +161,39 @@ function isListType(tabName) {
   return Object.prototype.hasOwnProperty.call(SCHEMAS, tabName);
 }
 
+// Leading apostrophe forces Sheets to store a value as plain text under USER_ENTERED, instead of
+// auto-parsing it as a number/time/date. Without this, a numeric-looking string — a mobile profile
+// name ("15.99"), a phone number, a POD/PDR code — gets silently reinterpreted (e.g. Sheets read
+// "16.39" as 16:39 TIME) and reformatted a little differently on every subsequent rewrite, since
+// sheetsWriteList rewrites the whole tab on every save. Applies to every plain-text field ('string'
+// default and 'nullable'); 'number'/'boolean'/'raw' are intentionally real Sheets types.
+function forceText(value) {
+  return value === null || value === undefined || value === '' ? '' : `'${value}`;
+}
+function stripForcedText(v) {
+  return v === '' ? '' : String(v).replace(/^'/, '');
+}
+
 function serializeCell(value, type) {
   switch (type) {
-    case 'nullable': return value === null || value === undefined ? '' : value;
+    case 'nullable': return forceText(value);
     case 'number': return typeof value === 'number' ? value : Number(value || 0);
     case 'boolean': return value ? 'Sì' : 'No';
     case 'array': return Array.isArray(value) ? value.join(', ') : (value || '');
     case 'raw': return value === null || value === undefined ? '' : value;
-    // Leading apostrophe forces Sheets to store it as plain text under USER_ENTERED, so a
-    // decimal string like "29.99" isn't auto-parsed into a number and reformatted with a
-    // locale decimal separator (e.g. "29,99") the next time it's read back.
-    case 'text': return value === null || value === undefined || value === '' ? '' : `'${value}`;
-    default: return value === null || value === undefined ? '' : value;
+    default: return forceText(value);
   }
 }
 
 function deserializeCell(raw, type) {
   const v = raw === undefined ? '' : raw;
   switch (type) {
-    case 'nullable': return v === '' ? null : v;
+    case 'nullable': { const s = stripForcedText(v); return s === '' ? null : s; }
     case 'number': return v === '' ? 0 : Number(v);
     case 'boolean': return v === 'Sì' || v === true;
     case 'array': return v === '' ? [] : String(v).split(',').map((s) => s.trim()).filter(Boolean);
     case 'raw': return v === '' ? null : v;
-    case 'text': { const s = v === '' ? '' : String(v).replace(/^'/, ''); return s === '' ? null : s; }
-    default: return v;
+    default: return stripForcedText(v);
   }
 }
 
