@@ -24,7 +24,7 @@ button{cursor:pointer}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useCallback}=React;
-const {CATALOG,computeServiceCounters,expandCartToRecords}=CrmLogic;
+const {CATALOG,computeServiceCounters,expandCartToRecords,isSeniorClient,isOpportunityDue}=CrmLogic;
 
 const STORAGE_KEY='tim_crm_v2';
 const SESSION_KEY='tim_session';
@@ -44,7 +44,7 @@ const RISK={basso:{color:"#22c55e",bg:"#f0fdf4",label:"Basso"},medio:{color:"#f5
 const EMPTY={name:"",contact:"",phone:"",contractStart:"",contractEnd:"",notes:"",churnRisk:"basso"};
 const EMPTY_REFERENTE={name:"",role:"",phone:"",email:"",notes:""};
 const SERVICE_STATUS_LABEL={attivo:"Attivo","in attivazione":"In attivazione",cessato:"Cessato"};
-const CATEGORY_LABEL={fissa:"Rete fissa",mobile:"Mobile",aggiuntivo:"Profilo aggiuntivo",energia:"Energia"};
+const CATEGORY_LABEL={fissa:"Rete fissa",mobile:"Mobile",aggiuntivo:"Reti fisse profili",energia:"Energia"};
 const FLAG_LABEL={voceInternet:"Voce+Internet",soloInternet:"Solo Internet",backup:"Backup",casa:"Casa",voceDati:"Voce+Dati",soloDati:"Solo Dati",numeroVariabile:"Numero Variabile",axpo:"Axpo"};
 
 function daysUntil(d){return Math.ceil((new Date(d)-new Date())/86400000)}
@@ -58,6 +58,21 @@ function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2
 const CC_STATUS_LABEL={interessato:'Interessato',non_interessato:'Non interessato',richiamata:'Richiamata',appuntamento:'Appuntamento',segreteria:'Segreteria',da_chiamare:'Da chiamare'};
 const CC_STATUS_COLOR={interessato:'#22c55e',non_interessato:'#ef4444',richiamata:'#f59e0b',appuntamento:'#8b5cf6',segreteria:'#3b82f6',da_chiamare:'#64748b'};
 const CC_STATUS_BG={interessato:'#f0fdf4',non_interessato:'#fef2f2',richiamata:'#fffbeb',appuntamento:'#f5f3ff',segreteria:'#eff6ff',da_chiamare:'#f1f5f9'};
+
+/* ── LEAD (contatto caldo non ancora cliente) ── */
+const LEAD_STATUS_LABEL={nuovo:'Nuovo',in_trattativa:'In trattativa',convertito:'Convertito',perso:'Perso'};
+const LEAD_STATUS_COLOR={nuovo:'#3b82f6',in_trattativa:'#f59e0b',convertito:'#22c55e',perso:'#ef4444'};
+const LEAD_STATUS_BG={nuovo:'#eff6ff',in_trattativa:'#fffbeb',convertito:'#f0fdf4',perso:'#fef2f2'};
+
+/* ── OPPORTUNITÀ (creazione sempre esplicita, mai automatica) ── */
+const OPP_STATUS_LABEL={aperta:'Aperta',vinta:'Vinta',persa:'Persa'};
+const OPP_STATUS_COLOR={aperta:'#3b82f6',vinta:'#22c55e',persa:'#ef4444'};
+const OPP_STATUS_BG={aperta:'#eff6ff',vinta:'#f0fdf4',persa:'#fef2f2'};
+
+function describeServiceFlags(s){
+  const active=Object.keys(FLAG_LABEL).filter(f=>s[f]).map(f=>FLAG_LABEL[f]);
+  return active.length?` (${active.join(', ')})`:'';
+}
 
 /* ── STYLES ───────────────────────────────────── */
 const S={
@@ -353,11 +368,14 @@ function ServiceFlags({category,values,onChange}){
 
 /* ── SERVICE MODAL (modifica un singolo record di servizio) ── */
 function ServiceModal({service,onClose,onSaved}){
+  const [category,setCategoryState]=useState(service.category);
+  const [profile,setProfile]=useState(service.profile);
   const [phone,setPhone]=useState(service.phone||'');
   const [saleDate,setSaleDate]=useState(service.saleDate||'');
   const [activationDate,setActivationDate]=useState(service.activationDate||'');
   const [status,setStatus]=useState(service.status||'attivo');
   const [notes,setNotes]=useState(service.notes||'');
+  const [price,setPrice]=useState(service.price||'');
   const [flags,setFlags]=useState({
     voceInternet:service.voceInternet,soloInternet:service.soloInternet,backup:service.backup,casa:service.casa,
     voceDati:service.voceDati,soloDati:service.soloDati,numeroVariabile:service.numeroVariabile,axpo:service.axpo,
@@ -365,19 +383,33 @@ function ServiceModal({service,onClose,onSaved}){
   const [pod,setPod]=useState(service.pod||'');
   const [pdr,setPdr]=useState(service.pdr||'');
 
+  const profilesFor=(cat)=>CATALOG.filter(p=>p.category===cat).map(p=>p.profile);
+  const setCategory=(cat)=>{setCategoryState(cat);setProfile(profilesFor(cat)[0]);};
+
   const save=()=>{
-    onSaved({...service,phone:phone||null,saleDate,activationDate:activationDate||null,status,notes,...flags,pod:pod||null,pdr:pdr||null});
+    onSaved({...service,category,profile,phone:phone||null,saleDate,activationDate:activationDate||null,status,notes,...flags,pod:pod||null,pdr:pdr||null,price:price?Number(price):null});
   };
 
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
       <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:460,boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
-          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>✏️ {CATEGORY_LABEL[service.category]} — {service.profile}</h2>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>✏️ Modifica servizio</h2>
           <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:6}}>
+          <div><label style={S.lbl}>Categoria</label>
+            <select style={{...S.inp,cursor:'pointer'}} value={category} onChange={e=>setCategory(e.target.value)}>
+              {Object.keys(CATEGORY_LABEL).map(k=><option key={k} value={k}>{CATEGORY_LABEL[k]}</option>)}
+            </select>
+          </div>
+          <div><label style={S.lbl}>Profilo</label>
+            <select style={{...S.inp,cursor:'pointer'}} value={profile} onChange={e=>setProfile(e.target.value)}>
+              {profilesFor(category).map(p=><option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
           <div><label style={S.lbl}>Numero telefonico</label><input style={S.inp} value={phone} onChange={e=>setPhone(e.target.value)} placeholder="Facoltativo"/></div>
+          <div><label style={S.lbl}>Prezzo (€)</label><input style={S.inp} type="number" step="0.01" value={price} onChange={e=>setPrice(e.target.value)} placeholder="Facoltativo"/></div>
           <div><label style={S.lbl}>Stato</label>
             <select style={{...S.inp,cursor:'pointer'}} value={status} onChange={e=>setStatus(e.target.value)}>
               {Object.keys(SERVICE_STATUS_LABEL).map(k=><option key={k} value={k}>{SERVICE_STATUS_LABEL[k]}</option>)}
@@ -385,10 +417,10 @@ function ServiceModal({service,onClose,onSaved}){
           </div>
           <div><label style={S.lbl}>Data vendita</label><input style={S.inp} type="date" value={saleDate} onChange={e=>setSaleDate(e.target.value)}/></div>
           <div><label style={S.lbl}>Data attivazione</label><input style={S.inp} type="date" value={activationDate} onChange={e=>setActivationDate(e.target.value)}/></div>
-          {service.category==='energia'&&service.profile==='Luce'&&<div><label style={S.lbl}>POD</label><input style={S.inp} value={pod} onChange={e=>setPod(e.target.value)}/></div>}
-          {service.category==='energia'&&service.profile==='Gas'&&<div><label style={S.lbl}>PDR</label><input style={S.inp} value={pdr} onChange={e=>setPdr(e.target.value)}/></div>}
+          {category==='energia'&&profile==='Luce'&&<div><label style={S.lbl}>POD</label><input style={S.inp} value={pod} onChange={e=>setPod(e.target.value)}/></div>}
+          {category==='energia'&&profile==='Gas'&&<div><label style={S.lbl}>PDR</label><input style={S.inp} value={pdr} onChange={e=>setPdr(e.target.value)}/></div>}
         </div>
-        <ServiceFlags category={service.category} values={flags} onChange={(f,v)=>setFlags(x=>({...x,[f]:v}))}/>
+        <ServiceFlags category={category} values={flags} onChange={(f,v)=>setFlags(x=>({...x,[f]:v}))}/>
         <div style={{marginTop:12,marginBottom:14}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:60,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)}/></div>
         <div style={{display:'flex',gap:10}}>
           <button onClick={save} style={{...S.btn('lg'),...S.suc,flex:1}}>💾 Salva</button>
@@ -400,19 +432,56 @@ function ServiceModal({service,onClose,onSaved}){
 }
 
 /* ── CART MODAL (carrello vendita — genera record di servizio individuali) ── */
-function CartModal({onClose,onSaved}){
-  const emptyRow=()=>({category:'fissa',profile:'FTTH',quantity:1,phone:'',saleDate:todayStr(),notes:'',voceInternet:false,soloInternet:false,backup:false,casa:false,voceDati:false,soloDati:false,numeroVariabile:false,axpo:false,pod:'',pdr:''});
-  const [rows,setRows]=useState([emptyRow()]);
-  const [err,setErr]=useState('');
-  const [busy,setBusy]=useState(false);
+const emptyCartRow=()=>({category:'fissa',profile:'FTTH',quantity:1,phone:'',saleDate:todayStr(),notes:'',price:'',voceInternet:false,soloInternet:false,backup:false,casa:false,voceDati:false,soloDati:false,numeroVariabile:false,axpo:false,pod:'',pdr:''});
 
+/* ── CART ROWS EDITOR (righe categoria/profilo/quantità/flag/prezzo — condiviso tra CartModal e la vendita iniziale nel form Nuovo cliente) ── */
+function CartRowsEditor({rows,setRows}){
   const profilesFor=(category)=>CATALOG.filter(p=>p.category===category).map(p=>p.profile);
-
   const updateRow=(i,patch)=>setRows(rs=>rs.map((r,idx)=>idx!==i?r:{...r,...patch}));
   const setCategory=(i,category)=>updateRow(i,{category,profile:profilesFor(category)[0]});
   const setFlag=(i,flag,val)=>updateRow(i,{[flag]:val});
-  const addRow=()=>setRows(rs=>[...rs,emptyRow()]);
+  const addRow=()=>setRows(rs=>[...rs,emptyCartRow()]);
   const removeRow=(i)=>setRows(rs=>rs.filter((_,idx)=>idx!==i));
+
+  return(
+    <>
+      {rows.map((row,i)=>(
+        <div key={i} style={{border:'1.5px solid #e2e8f0',borderRadius:10,padding:14,marginBottom:12}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+            <div style={{fontSize:12,fontWeight:700,color:'#94a3b8',textTransform:'uppercase'}}>Riga {i+1}</div>
+            <button onClick={()=>removeRow(i)} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:12,fontWeight:700}}>🗑 Rimuovi</button>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 80px',gap:10,marginBottom:8}}>
+            <div><label style={S.lbl}>Categoria</label>
+              <select style={{...S.inp,cursor:'pointer'}} value={row.category} onChange={e=>setCategory(i,e.target.value)}>
+                {Object.keys(CATEGORY_LABEL).map(k=><option key={k} value={k}>{CATEGORY_LABEL[k]}</option>)}
+              </select>
+            </div>
+            <div><label style={S.lbl}>Profilo</label>
+              <select style={{...S.inp,cursor:'pointer'}} value={row.profile} onChange={e=>updateRow(i,{profile:e.target.value})}>
+                {profilesFor(row.category).map(p=><option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div><label style={S.lbl}>Qtà</label><input style={S.inp} type="number" min="1" value={row.quantity} onChange={e=>updateRow(i,{quantity:e.target.value})}/></div>
+          </div>
+          <ServiceFlags category={row.category} values={row} onChange={(f,v)=>setFlag(i,f,v)}/>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginTop:8}}>
+            {row.category==='energia'&&row.profile==='Luce'&&<div><label style={S.lbl}>POD</label><input style={S.inp} value={row.pod} onChange={e=>updateRow(i,{pod:e.target.value})}/></div>}
+            {row.category==='energia'&&row.profile==='Gas'&&<div><label style={S.lbl}>PDR</label><input style={S.inp} value={row.pdr} onChange={e=>updateRow(i,{pdr:e.target.value})}/></div>}
+            <div><label style={S.lbl}>Prezzo (€)</label><input style={S.inp} type="number" step="0.01" value={row.price} onChange={e=>updateRow(i,{price:e.target.value})} placeholder="Facoltativo"/></div>
+          </div>
+          <div style={{marginTop:8}}><label style={S.lbl}>Note riga</label><input style={S.inp} value={row.notes} onChange={e=>updateRow(i,{notes:e.target.value})}/></div>
+        </div>
+      ))}
+      <button onClick={addRow} style={{...S.btn('sm'),...S.gho,border:'1.5px dashed #cbd5e1',width:'100%'}}>➕ Aggiungi riga</button>
+    </>
+  );
+}
+
+function CartModal({onClose,onSaved}){
+  const [rows,setRows]=useState([emptyCartRow()]);
+  const [err,setErr]=useState('');
+  const [busy,setBusy]=useState(false);
 
   const save=async()=>{
     if(rows.length===0)return setErr('Aggiungi almeno una riga');
@@ -431,35 +500,150 @@ function CartModal({onClose,onSaved}){
           <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>🛒 Carrello vendita</h2>
           <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
         </div>
-        {rows.map((row,i)=>(
-          <div key={i} style={{border:'1.5px solid #e2e8f0',borderRadius:10,padding:14,marginBottom:12}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-              <div style={{fontSize:12,fontWeight:700,color:'#94a3b8',textTransform:'uppercase'}}>Riga {i+1}</div>
-              {rows.length>1&&<button onClick={()=>removeRow(i)} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:12,fontWeight:700}}>🗑 Rimuovi</button>}
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 80px',gap:10,marginBottom:8}}>
-              <div><label style={S.lbl}>Categoria</label>
-                <select style={{...S.inp,cursor:'pointer'}} value={row.category} onChange={e=>setCategory(i,e.target.value)}>
-                  {Object.keys(CATEGORY_LABEL).map(k=><option key={k} value={k}>{CATEGORY_LABEL[k]}</option>)}
-                </select>
-              </div>
-              <div><label style={S.lbl}>Profilo</label>
-                <select style={{...S.inp,cursor:'pointer'}} value={row.profile} onChange={e=>updateRow(i,{profile:e.target.value})}>
-                  {profilesFor(row.category).map(p=><option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-              <div><label style={S.lbl}>Qtà</label><input style={S.inp} type="number" min="1" value={row.quantity} onChange={e=>updateRow(i,{quantity:e.target.value})}/></div>
-            </div>
-            <ServiceFlags category={row.category} values={row} onChange={(f,v)=>setFlag(i,f,v)}/>
-            {row.category==='energia'&&row.profile==='Luce'&&<div style={{marginTop:8}}><label style={S.lbl}>POD</label><input style={S.inp} value={row.pod} onChange={e=>updateRow(i,{pod:e.target.value})}/></div>}
-            {row.category==='energia'&&row.profile==='Gas'&&<div style={{marginTop:8}}><label style={S.lbl}>PDR</label><input style={S.inp} value={row.pdr} onChange={e=>updateRow(i,{pdr:e.target.value})}/></div>}
-            <div style={{marginTop:8}}><label style={S.lbl}>Note riga</label><input style={S.inp} value={row.notes} onChange={e=>updateRow(i,{notes:e.target.value})}/></div>
+        <CartRowsEditor rows={rows} setRows={setRows}/>
+        {err&&<p style={{color:'#ef4444',fontSize:12,marginTop:10,marginBottom:10}}>{err}</p>}
+        <div style={{display:'flex',gap:10,marginTop:16}}>
+          <button onClick={save} disabled={busy} style={{...S.btn('lg'),...S.suc,flex:1,opacity:busy?.7:1}}>{busy?'Salvataggio...':'💾 Salva vendita'}</button>
+          <button onClick={onClose} style={{...S.btn('lg'),...S.gho}}>Annulla</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── LEAD MODAL (aggiungi/modifica lead) ── */
+function LeadModal({initial,onClose,onSaved}){
+  const [company,setCompany]=useState(initial?.company||'');
+  const [contact,setContact]=useState(initial?.contact||'');
+  const [phone,setPhone]=useState(initial?.phone||'');
+  const [email,setEmail]=useState(initial?.email||'');
+  const [serviceInterest,setServiceInterest]=useState(initial?.serviceInterest||'');
+  const [callbackDate,setCallbackDate]=useState(initial?.callbackDate||'');
+  const [callbackReason,setCallbackReason]=useState(initial?.callbackReason||'');
+  const [notes,setNotes]=useState(initial?.notes||'');
+  const [status,setStatus]=useState(initial?.status||'nuovo');
+  const [err,setErr]=useState('');
+
+  const save=()=>{
+    if(!company.trim())return setErr('Inserisci il nome azienda');
+    if(!phone.trim())return setErr('Inserisci il numero di telefono');
+    onSaved({
+      id:initial?.id,
+      company:company.trim(),contact:contact.trim(),phone:phone.trim(),email:email.trim(),
+      serviceInterest:serviceInterest.trim(),callbackDate:callbackDate||null,callbackReason:callbackReason.trim(),
+      notes:notes.trim(),status,
+    });
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:480,boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>{initial?'✏️ Modifica lead':'🎯 Nuovo lead'}</h2>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:12}}>
+          <div style={{gridColumn:'1/-1'}}><label style={S.lbl}>Azienda *</label><input style={S.inp} value={company} onChange={e=>setCompany(e.target.value)} placeholder="Es. Rossi SRL" autoFocus/></div>
+          <div><label style={S.lbl}>Referente</label><input style={S.inp} value={contact} onChange={e=>setContact(e.target.value)} placeholder="Nome cognome"/></div>
+          <div><label style={S.lbl}>Telefono *</label><input style={S.inp} value={phone} onChange={e=>setPhone(e.target.value)}/></div>
+          <div><label style={S.lbl}>Email</label><input style={S.inp} value={email} onChange={e=>setEmail(e.target.value)}/></div>
+          <div><label style={S.lbl}>Servizio di interesse</label><input style={S.inp} value={serviceInterest} onChange={e=>setServiceInterest(e.target.value)} placeholder="Es. FTTH, mobile..."/></div>
+          <div><label style={S.lbl}>Data ricontatto</label><input style={S.inp} type="date" value={callbackDate||''} onChange={e=>setCallbackDate(e.target.value)}/></div>
+          <div><label style={S.lbl}>Stato</label>
+            <select style={{...S.inp,cursor:'pointer'}} value={status} onChange={e=>setStatus(e.target.value)}>
+              {Object.keys(LEAD_STATUS_LABEL).map(k=><option key={k} value={k}>{LEAD_STATUS_LABEL[k]}</option>)}
+            </select>
           </div>
-        ))}
-        <button onClick={addRow} style={{...S.btn('sm'),...S.gho,border:'1.5px dashed #cbd5e1',width:'100%',marginBottom:16}}>➕ Aggiungi riga</button>
+          <div style={{gridColumn:'1/-1'}}><label style={S.lbl}>Motivo ricontatto</label><input style={S.inp} value={callbackReason} onChange={e=>setCallbackReason(e.target.value)}/></div>
+          <div style={{gridColumn:'1/-1'}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:60,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)}/></div>
+        </div>
         {err&&<p style={{color:'#ef4444',fontSize:12,marginBottom:10}}>{err}</p>}
         <div style={{display:'flex',gap:10}}>
-          <button onClick={save} disabled={busy} style={{...S.btn('lg'),...S.suc,flex:1,opacity:busy?.7:1}}>{busy?'Salvataggio...':'💾 Salva vendita'}</button>
+          <button onClick={save} style={{...S.btn('lg'),...S.suc,flex:1}}>💾 Salva</button>
+          <button onClick={onClose} style={{...S.btn('lg'),...S.gho}}>Annulla</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── OPPORTUNITÀ MODAL (creazione sempre esplicita — mai automatica) ── */
+function OpportunitaModal({initial,prefill,clients,leads,onClose,onSaved}){
+  const [targetType,setTargetType]=useState(initial?.leadId?'lead':'cliente');
+  const [clientId,setClientId]=useState(initial?.clientId||prefill?.clientId||(clients[0]?.id??''));
+  const [leadId,setLeadId]=useState(initial?.leadId||prefill?.leadId||(leads[0]?.id??''));
+  const [service,setService]=useState(initial?.service||'');
+  const [reason,setReason]=useState(initial?.reason||'');
+  const [dueDate,setDueDate]=useState(initial?.dueDate||'');
+  const [status,setStatus]=useState(initial?.status||'aperta');
+  const [notes,setNotes]=useState(initial?.notes||'');
+  const [err,setErr]=useState('');
+
+  useEffect(()=>{
+    if(prefill?.leadId){setTargetType('lead');setLeadId(prefill.leadId);}
+    if(prefill?.clientId){setTargetType('cliente');setClientId(prefill.clientId);}
+  },[prefill]);
+
+  // target bloccato in modifica o quando arriva da una scorciatoia (già collegata a un cliente/lead preciso)
+  const lockTarget=!!(prefill?.clientId||prefill?.leadId||initial);
+
+  const save=()=>{
+    if(!service.trim())return setErr('Inserisci il servizio da proporre');
+    if(!reason.trim())return setErr('Inserisci il motivo');
+    if(targetType==='cliente'&&!clientId)return setErr('Seleziona un cliente');
+    if(targetType==='lead'&&!leadId)return setErr('Seleziona un lead');
+    onSaved({
+      id:initial?.id,
+      clientId:targetType==='cliente'?clientId:null,
+      leadId:targetType==='lead'?leadId:null,
+      service:service.trim(),reason:reason.trim(),dueDate:dueDate||null,status,notes:notes.trim(),
+      createdAt:initial?.createdAt,
+    });
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:480,boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>{initial?'✏️ Modifica opportunità':'💡 Nuova opportunità'}</h2>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:12}}>
+          <div style={{gridColumn:'1/-1'}}>
+            <label style={S.lbl}>Collegata a</label>
+            <div style={{display:'flex',gap:16,marginBottom:8}}>
+              <label style={{display:'flex',alignItems:'center',gap:6,fontSize:12,cursor:lockTarget?'default':'pointer'}}>
+                <input type="radio" disabled={lockTarget} checked={targetType==='cliente'} onChange={()=>setTargetType('cliente')}/> Cliente esistente
+              </label>
+              <label style={{display:'flex',alignItems:'center',gap:6,fontSize:12,cursor:lockTarget?'default':'pointer'}}>
+                <input type="radio" disabled={lockTarget} checked={targetType==='lead'} onChange={()=>setTargetType('lead')}/> Lead
+              </label>
+            </div>
+            {targetType==='cliente'?(
+              <select style={{...S.inp,cursor:lockTarget?'default':'pointer'}} value={clientId} disabled={lockTarget} onChange={e=>setClientId(e.target.value)}>
+                {clients.length===0&&<option value="">Nessun cliente</option>}
+                {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            ):(
+              <select style={{...S.inp,cursor:lockTarget?'default':'pointer'}} value={leadId} disabled={lockTarget} onChange={e=>setLeadId(e.target.value)}>
+                {leads.length===0&&<option value="">Nessun lead</option>}
+                {leads.map(l=><option key={l.id} value={l.id}>{l.company}</option>)}
+              </select>
+            )}
+          </div>
+          <div style={{gridColumn:'1/-1'}}><label style={S.lbl}>Servizio da proporre *</label><input style={S.inp} value={service} onChange={e=>setService(e.target.value)} placeholder="Es. FTTH, upgrade mobile..." autoFocus/></div>
+          <div style={{gridColumn:'1/-1'}}><label style={S.lbl}>Motivo *</label><input style={S.inp} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Es. vendita rimandata, ricontatto concordato..."/></div>
+          <div><label style={S.lbl}>Data prevista</label><input style={S.inp} type="date" value={dueDate||''} onChange={e=>setDueDate(e.target.value)}/></div>
+          <div><label style={S.lbl}>Stato</label>
+            <select style={{...S.inp,cursor:'pointer'}} value={status} onChange={e=>setStatus(e.target.value)}>
+              {Object.keys(OPP_STATUS_LABEL).map(k=><option key={k} value={k}>{OPP_STATUS_LABEL[k]}</option>)}
+            </select>
+          </div>
+          <div style={{gridColumn:'1/-1'}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:60,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)}/></div>
+        </div>
+        {err&&<p style={{color:'#ef4444',fontSize:12,marginBottom:10}}>{err}</p>}
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={save} style={{...S.btn('lg'),...S.suc,flex:1}}>💾 Salva</button>
           <button onClick={onClose} style={{...S.btn('lg'),...S.gho}}>Annulla</button>
         </div>
       </div>
@@ -476,6 +660,7 @@ function CrmApp({session,onLogout}){
   const [selId,setSelId]=useState(null);
   const [editId,setEditId]=useState(null);
   const [form,setForm]=useState(EMPTY);
+  const [newClientCart,setNewClientCart]=useState([]);
   const [search,setSearch]=useState("");
   const [F,setF]=useState({attivoDa:"tutti",retiFisse:"tutti",retiMobili:"tutti",trunk:"tutti"});
   const [toast,setToast]=useState(null);
@@ -496,6 +681,20 @@ function CrmApp({session,onLogout}){
   const [showReferenteModal,setShowReferenteModal]=useState(false);
   const [editReferente,setEditReferente]=useState(null);
   const [editService,setEditService]=useState(null);
+  const [leads,setLeads]=useState([]);
+  const [leadsLoading,setLeadsLoading]=useState(true);
+  const [leadModalOpen,setLeadModalOpen]=useState(false);
+  const [editLead,setEditLead]=useState(null);
+  const [leadSearch,setLeadSearch]=useState('');
+  const [leadStatusFilter,setLeadStatusFilter]=useState('tutti');
+  const [opportunita,setOpportunita]=useState([]);
+  const [oppLoading,setOppLoading]=useState(true);
+  const [oppModalOpen,setOppModalOpen]=useState(false);
+  const [editOpp,setEditOpp]=useState(null);
+  const [oppPrefill,setOppPrefill]=useState(null);
+  const [timeline,setTimeline]=useState([]);
+  const [timelineLoading,setTimelineLoading]=useState(true);
+  const [noteText,setNoteText]=useState('');
 
   const notify=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),2500)};
   const setFilt=(k,v)=>setF(f=>({...f,[k]:v}));
@@ -560,16 +759,21 @@ function CrmApp({session,onLogout}){
   const handleCartSaved=async(rows)=>{
     const newRecords=expandCartToRecords(rows,selId);
     await saveServices([...services,...newRecords]);
+    const summary=newRecords.map(r=>`${r.profile}${describeServiceFlags(r)}`).join(', ');
+    addTimelineEntry(selId,'servizio',`Aggiunti ${newRecords.length} servizi: ${summary}`);
     notify(`${newRecords.length} servizi aggiunti ✓`);
   };
   const handleServiceSaved=(updated)=>{
     saveServices(services.map(s=>s.id===updated.id?updated:s));
+    addTimelineEntry(updated.clientId,'servizio',`Modificato ${CATEGORY_LABEL[updated.category]} — ${updated.profile}${describeServiceFlags(updated)}`);
     setEditService(null);
     notify('Servizio aggiornato ✓');
   };
   const deleteService=(id)=>{
     if(!window.confirm('Eliminare questo servizio?'))return;
+    const target=services.find(s=>s.id===id);
     saveServices(services.filter(s=>s.id!==id));
+    if(target)addTimelineEntry(target.clientId,'servizio',`Eliminato ${CATEGORY_LABEL[target.category]} — ${target.profile}`);
     notify('Servizio eliminato');
   };
   const handleReferenteSaved=(r)=>{
@@ -586,6 +790,86 @@ function CrmApp({session,onLogout}){
     if(!window.confirm('Eliminare questo referente?'))return;
     saveReferenti(referenti.filter(r=>r.id!==id));
     notify('Referente eliminato');
+  };
+
+  /* ── Timeline (diario commerciale — sola creazione, mai modificata/eliminata) ── */
+  const loadTimeline=useCallback(async()=>{
+    setTimelineLoading(true);
+    try{const r=await fetch('/api/data?type=timeline');const d=await r.json();setTimeline(Array.isArray(d)?d:[]);}catch{setTimeline([]);}
+    setTimelineLoading(false);
+  },[]);
+  useEffect(()=>{loadTimeline();},[loadTimeline]);
+
+  const saveTimeline=async(list)=>{
+    setTimeline(list);
+    await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'timeline',data:list})});
+  };
+  const addTimelineEntry=(clientId,type,text)=>{
+    saveTimeline([...timeline,{id:uid(),clientId,date:new Date().toISOString(),user:session.name,type,text}]);
+  };
+  const getClientTimeline=(clientId)=>timeline.filter(t=>t.clientId===clientId).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const addNote=()=>{
+    if(!noteText.trim())return;
+    addTimelineEntry(selId,'nota',noteText.trim());
+    setNoteText('');
+  };
+
+  /* ── Lead (contatto caldo non ancora cliente) ── */
+  const loadLeads=useCallback(async()=>{
+    setLeadsLoading(true);
+    try{const r=await fetch('/api/data?type=leads');const d=await r.json();setLeads(Array.isArray(d)?d:[]);}catch{setLeads([]);}
+    setLeadsLoading(false);
+  },[]);
+  useEffect(()=>{loadLeads();},[loadLeads]);
+
+  const saveLeads=async(list)=>{
+    setLeads(list);
+    await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'leads',data:list})});
+  };
+  const handleLeadSaved=(l)=>{
+    if(editLead){saveLeads(leads.map(x=>x.id===l.id?l:x));notify('Lead aggiornato ✓');}
+    else{saveLeads([...leads,{...l,id:uid()}]);notify('Lead aggiunto ✓');}
+    setLeadModalOpen(false);setEditLead(null);
+  };
+  const deleteLead=(id)=>{
+    if(!window.confirm('Eliminare questo lead?'))return;
+    saveLeads(leads.filter(l=>l.id!==id));
+    saveOpportunita(opportunita.filter(o=>o.leadId!==id));
+    notify('Lead eliminato');
+  };
+  const filteredLeads=leads.filter(l=>{
+    const ms=!leadSearch||l.company?.toLowerCase().includes(leadSearch.toLowerCase())||l.phone?.includes(leadSearch);
+    const mo=leadStatusFilter==='tutti'||l.status===leadStatusFilter;
+    return ms&&mo;
+  });
+
+  /* ── Opportunità (creazione sempre esplicita, mai automatica) ── */
+  const loadOpportunita=useCallback(async()=>{
+    setOppLoading(true);
+    try{const r=await fetch('/api/data?type=opportunita');const d=await r.json();setOpportunita(Array.isArray(d)?d:[]);}catch{setOpportunita([]);}
+    setOppLoading(false);
+  },[]);
+  useEffect(()=>{loadOpportunita();},[loadOpportunita]);
+
+  const saveOpportunita=async(list)=>{
+    setOpportunita(list);
+    await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'opportunita',data:list})});
+  };
+  const handleOppSaved=(o)=>{
+    if(editOpp){saveOpportunita(opportunita.map(x=>x.id===o.id?o:x));notify('Opportunità aggiornata ✓');}
+    else{saveOpportunita([...opportunita,{...o,id:uid(),createdAt:new Date().toISOString()}]);notify('Opportunità creata ✓');}
+    setOppModalOpen(false);setEditOpp(null);setOppPrefill(null);
+  };
+  const deleteOpp=(id)=>{
+    if(!window.confirm('Eliminare questa opportunità?'))return;
+    saveOpportunita(opportunita.filter(o=>o.id!==id));
+    notify('Opportunità eliminata');
+  };
+  const getClientOpportunita=(clientId)=>opportunita.filter(o=>o.clientId===clientId);
+  const oppTargetLabel=(o)=>{
+    if(o.clientId){const c=clients.find(x=>x.id===o.clientId);return c?c.name:'Cliente eliminato';}
+    if(o.leadId){const l=leads.find(x=>x.id===o.leadId);return l?l.company:'Lead eliminato';}
+    return '—';
   };
 
   const loadAppointments=useCallback(async()=>{
@@ -643,14 +927,28 @@ function CrmApp({session,onLogout}){
   const handleSave=()=>{
     if(!form.name.trim())return notify("Inserisci il nome cliente","err");
     if(!form.contractEnd)return notify("Inserisci la scadenza contratto","err");
-    if(editId){save(clients.map(c=>c.id===editId?{...form,id:editId}:c));notify("Cliente aggiornato ✓");}
-    else{save([...clients,{...form,id:Date.now()}]);notify("Cliente aggiunto ✓");}
-    setEditId(null);setForm(EMPTY);setView("clienti");
+    if(editId){
+      save(clients.map(c=>c.id===editId?{...form,id:editId}:c));
+      notify("Cliente aggiornato ✓");
+    } else {
+      const newId=Date.now();
+      save([...clients,{...form,id:newId}]);
+      if(newClientCart.length>0){
+        const newRecords=expandCartToRecords(newClientCart,newId);
+        saveServices([...services,...newRecords]);
+        const summary=newRecords.map(r=>`${r.profile}${describeServiceFlags(r)}`).join(', ');
+        addTimelineEntry(newId,'servizio',`Aggiunti ${newRecords.length} servizi: ${summary}`);
+      }
+      notify("Cliente aggiunto ✓");
+    }
+    setEditId(null);setForm(EMPTY);setNewClientCart([]);setView("clienti");
   };
   const handleDelete=(id)=>{
     save(clients.filter(c=>c.id!==id));
     saveServices(services.filter(s=>s.clientId!==id));
     saveReferenti(referenti.filter(r=>r.clientId!==id));
+    saveTimeline(timeline.filter(t=>t.clientId!==id));
+    saveOpportunita(opportunita.filter(o=>o.clientId!==id));
     setSelId(null);notify("Cliente eliminato");
   };
   const startEdit=(c)=>{setEditId(c.id);setForm({...c});setView("form");};
@@ -680,7 +978,7 @@ function CrmApp({session,onLogout}){
   const upcomingAppts=appointments.filter(a=>a.date>=todayStr()).sort((a,b)=>a.date.localeCompare(b.date));
   const pastAppts=appointments.filter(a=>a.date<todayStr()).sort((a,b)=>b.date.localeCompare(a.date));
 
-  const TABS=[{k:"dashboard",l:"📊 Dashboard"},{k:"clienti",l:"👥 Clienti"},{k:"prospect",l:"📇 Anagrafica Call Center"},{k:"scadenze",l:"📅 Scadenze"},{k:"appuntamenti",l:"🗓 Appuntamenti"}];
+  const TABS=[{k:"dashboard",l:"📊 Dashboard"},{k:"clienti",l:"👥 Clienti"},{k:"prospect",l:"📇 Anagrafica Call Center"},{k:"lead",l:"🎯 Lead"},{k:"opportunita",l:"💡 Opportunità"},{k:"scadenze",l:"📅 Scadenze"},{k:"appuntamenti",l:"🗓 Appuntamenti"}];
 
   const FSel=({label,fkey,opts})=>(
     <div>
@@ -696,6 +994,8 @@ function CrmApp({session,onLogout}){
       {toast&&<div style={S.toast(toast.type)}>{toast.msg}</div>}
       {showApptModal&&<AppointmentModal onClose={()=>setShowApptModal(false)} onSaved={()=>{loadAppointments();notify('Appuntamento salvato ✓');}}/>}
       {prospectModalOpen&&<ProspectModal initial={editProspect} onClose={()=>{setProspectModalOpen(false);setEditProspect(null);}} onSaved={handleProspectSaved}/>}
+      {leadModalOpen&&<LeadModal initial={editLead} onClose={()=>{setLeadModalOpen(false);setEditLead(null);}} onSaved={handleLeadSaved}/>}
+      {oppModalOpen&&<OpportunitaModal initial={editOpp} prefill={oppPrefill} clients={clients} leads={leads} onClose={()=>{setOppModalOpen(false);setEditOpp(null);setOppPrefill(null);}} onSaved={handleOppSaved}/>}
       <header style={S.hdr}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:32,height:32,background:"#3b82f6",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>📱</div>
@@ -711,7 +1011,7 @@ function CrmApp({session,onLogout}){
               {t.k==="appuntamenti"&&todayAppts.length>0&&<span style={{marginLeft:5,background:"#ef4444",borderRadius:10,padding:"1px 6px",fontSize:10}}>{todayAppts.length}</span>}
             </button>
           ))}
-          <button style={S.nb(view==="form"&&!editId)} onClick={()=>{setEditId(null);setForm(EMPTY);setView("form");}}>+ Aggiungi</button>
+          <button style={S.nb(view==="form"&&!editId)} onClick={()=>{setEditId(null);setForm(EMPTY);setNewClientCart([]);setView("form");}}>+ Aggiungi</button>
           <a href="/callcenter.html" style={{padding:"7px 12px",borderRadius:8,fontSize:12,fontWeight:700,background:"#22c55e",color:"#fff",textDecoration:"none"}}>📞 Call Center</a>
           <button onClick={()=>{clearSession();onLogout();}} style={{...S.nb(false),background:"rgba(239,68,68,.3)"}}>Esci</button>
         </nav>
@@ -791,7 +1091,7 @@ function CrmApp({session,onLogout}){
             </div>
             <div style={S.card}>
               <table style={S.tbl}>
-                <thead><tr>{["Cliente","Stipula → Scad.","Fisse","Mobile","Trunk","Rischio",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <thead><tr>{["Cliente","Stipula → Scad.","Linee fisse","Linee mobili","Linee profili","Energia","Rischio",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {filtered.map(c=>{
                     const d=daysUntil(c.contractEnd);
@@ -801,13 +1101,14 @@ function CrmApp({session,onLogout}){
                         <td style={S.td}><div style={{fontWeight:700}}>{c.name}</div><div style={{fontSize:11,color:"#64748b"}}>{c.contact}</div></td>
                         <td style={S.td}><div style={{fontSize:11,color:"#64748b"}}>{fmt(c.contractStart)}</div><div style={{fontWeight:600,fontSize:12,color:d<0?"#ef4444":d<=30?"#f59e0b":"#0d1b4b"}}>{fmt(c.contractEnd)}</div>{d>=0&&d<=60&&<div style={{fontSize:10,color:"#f59e0b"}}>{d}gg</div>}{d<0&&<div style={{fontSize:10,color:"#ef4444"}}>Scaduto</div>}</td>
                         <td style={S.td}><strong>{cnt.retiFisseTotale}</strong></td><td style={S.td}><strong>{cnt.mobiliTotale}</strong></td>
-                        <td style={S.td}><span style={S.yn(cnt.trunk>0)}>{cnt.trunk>0?"Sì":"No"}</span></td>
+                        <td style={S.td}><strong>{cnt.tce+cnt.trunk+cnt.timComunica}</strong></td>
+                        <td style={S.td}><strong>{cnt.pod+cnt.pdr}</strong></td>
                         <td style={S.td}><span style={S.badge(c.churnRisk)}>{RISK[c.churnRisk]?.label}</span></td>
-                        <td style={S.td} onClick={e=>{e.stopPropagation();startEdit(c);}}><button style={{...S.btn("sm"),...S.pri}}>✏️</button></td>
+                        <td style={S.td} onClick={e=>{e.stopPropagation();setSelId(c.id);}}><button style={{...S.btn("sm"),...S.pri}}>✏️</button></td>
                       </tr>
                     );
                   })}
-                  {filtered.length===0&&<tr><td colSpan={7} style={{...S.td,textAlign:"center",color:"#94a3b8",padding:24}}>Nessun cliente trovato</td></tr>}
+                  {filtered.length===0&&<tr><td colSpan={8} style={{...S.td,textAlign:"center",color:"#94a3b8",padding:24}}>Nessun cliente trovato</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -818,6 +1119,8 @@ function CrmApp({session,onLogout}){
           const cnt=getCounters(selId);
           const svc=getClientServices(selId);
           const refs=getClientReferenti(selId);
+          const clientOpps=getClientOpportunita(selId);
+          const clientTimeline=getClientTimeline(selId);
           return(
           <>
             <button style={{...S.btn("sm"),...S.gho,marginBottom:12,paddingLeft:0}} onClick={()=>setSelId(null)}>← Lista</button>
@@ -828,7 +1131,10 @@ function CrmApp({session,onLogout}){
             <div style={S.card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
                 <div><h2 style={{fontSize:20,fontWeight:800,color:"#0d1b4b"}}>{sel.name}</h2><p style={{fontSize:12,color:"#64748b",marginTop:3}}>{sel.contact} · {sel.phone}</p></div>
-                <span style={S.badge(sel.churnRisk)}>Rischio {RISK[sel.churnRisk]?.label}</span>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  {isSeniorClient(sel.contractStart)&&<span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#eff6ff",color:"#3b82f6"}}>🕐 Cliente da {Math.floor((Date.now()-new Date(sel.contractStart))/(86400000*30.44))} mesi</span>}
+                  <span style={S.badge(sel.churnRisk)}>Rischio {RISK[sel.churnRisk]?.label}</span>
+                </div>
               </div>
               {[["Data stipula",fmt(sel.contractStart)],["Scadenza",fmt(sel.contractEnd)]].map(([l,v])=>(
                 <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #f1f5f9",fontSize:13}}><span style={{color:"#64748b"}}>{l}</span><strong>{v}</strong></div>
@@ -855,7 +1161,7 @@ function CrmApp({session,onLogout}){
                   <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>Voce+Dati: <strong>{cnt.voceDati}</strong> · Solo Dati: <strong>{cnt.soloDati}</strong> · Numero Variabile: <strong>{cnt.numeroVariabile}</strong></div>
                 </div>
                 <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Profili aggiuntivi</div>
+                  <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Reti fisse profili</div>
                   <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>TCE: <strong>{cnt.tce}</strong> · Trunk: <strong>{cnt.trunk}</strong> · TIM Comunica: <strong>{cnt.timComunica}</strong></div>
                 </div>
                 <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
@@ -871,13 +1177,14 @@ function CrmApp({session,onLogout}){
               {!servicesLoading&&svc.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:20,fontSize:13}}>Nessun servizio ancora. Usa "➕ Aggiungi vendita".</div>}
               {!servicesLoading&&svc.length>0&&(
                 <table style={S.tbl}>
-                  <thead><tr>{["Categoria","Profilo","Numero","Stato","Note",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["Categoria","Profilo","Numero","Prezzo","Stato","Note",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                   <tbody>
                     {svc.map(s=>(
                       <tr key={s.id}>
                         <td style={S.td}>{CATEGORY_LABEL[s.category]}</td>
                         <td style={S.td}><strong>{s.profile}</strong></td>
                         <td style={S.td}>{s.phone||"—"}</td>
+                        <td style={S.td}>{s.price?`€ ${s.price}`:"—"}</td>
                         <td style={S.td}>{SERVICE_STATUS_LABEL[s.status]||s.status}</td>
                         <td style={{...S.td,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#94a3b8"}}>{s.notes||"—"}</td>
                         <td style={{...S.td,whiteSpace:"nowrap"}}>
@@ -908,6 +1215,45 @@ function CrmApp({session,onLogout}){
                     <button onClick={()=>{setEditReferente(r);setShowReferenteModal(true);}} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
                     <button onClick={()=>deleteReferente(r.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
                   </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={S.card}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b"}}>💡 Opportunità ({clientOpps.length})</div>
+                <button onClick={()=>{setOppPrefill({clientId:selId});setEditOpp(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.suc}}>➕ Nuova opportunità</button>
+              </div>
+              {clientOpps.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:16,fontSize:13}}>Nessuna opportunità per questo cliente.</div>}
+              {clientOpps.map(o=>{
+                const due=isOpportunityDue(o.dueDate)&&o.status==='aperta';
+                return(
+                  <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 8px",borderRadius:8,marginBottom:6,background:due?"#fef2f2":"#f8fafc"}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:13}}>{o.service}{due&&<span style={{marginLeft:6,fontSize:10,fontWeight:700,color:"#ef4444"}}>SCADUTA</span>}</div>
+                      <div style={{fontSize:12,color:"#64748b"}}>{o.reason}{o.dueDate&&` · ${fmt(o.dueDate)}`}</div>
+                    </div>
+                    <div style={{whiteSpace:"nowrap"}}>
+                      <button onClick={()=>{setEditOpp(o);setOppPrefill(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
+                      <button onClick={()=>deleteOpp(o.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={S.card}>
+              <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>🕓 Timeline</div>
+              <div style={{display:"flex",gap:8,marginBottom:14}}>
+                <input style={{...S.inp,flex:1}} placeholder="Aggiungi una nota commerciale..." value={noteText} onChange={e=>setNoteText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')addNote();}}/>
+                <button onClick={addNote} style={{...S.btn("sm"),...S.suc}}>💾 Nota</button>
+              </div>
+              {timelineLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:16}}>Caricamento...</div>}
+              {!timelineLoading&&clientTimeline.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:16,fontSize:13}}>Nessuna voce ancora.</div>}
+              {clientTimeline.map(t=>(
+                <div key={t.id} style={{padding:"8px 0",borderBottom:"1px solid #f8fafc"}}>
+                  <div style={{fontSize:12,color:"#475569"}}>{t.type==='nota'?'📝':'📶'} {t.text}</div>
+                  <div style={{fontSize:10,color:"#94a3b8",marginTop:2}}>{fmt(t.date)} {fmtTime(t.date)} · {t.user}</div>
                 </div>
               ))}
             </div>
@@ -960,6 +1306,101 @@ function CrmApp({session,onLogout}){
                         </td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+
+        {view==="lead"&&(
+          <>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>🎯 Lead ({filteredLeads.length})</h2>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>{setEditLead(null);setLeadModalOpen(true);}} style={{...S.btn("sm"),...S.suc}}>➕ Nuovo Lead</button>
+                <button onClick={loadLeads} style={{...S.btn("sm"),...S.pri}}>🔄 Aggiorna</button>
+              </div>
+            </div>
+            <div style={{...S.card,padding:"12px 14px",display:"flex",gap:10,flexWrap:"wrap"}}>
+              <input style={{...S.inp,flex:1,minWidth:180}} placeholder="🔍 Cerca azienda o numero..." value={leadSearch} onChange={e=>setLeadSearch(e.target.value)}/>
+              <select style={{...S.sel,width:"auto"}} value={leadStatusFilter} onChange={e=>setLeadStatusFilter(e.target.value)}>
+                <option value="tutti">Tutti gli stati</option>
+                {Object.keys(LEAD_STATUS_LABEL).map(k=><option key={k} value={k}>{LEAD_STATUS_LABEL[k]}</option>)}
+              </select>
+            </div>
+            {leadsLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:32}}>Caricamento...</div>}
+            {!leadsLoading&&filteredLeads.length===0&&(
+              <div style={{...S.card,textAlign:"center",color:"#94a3b8",padding:40}}>
+                <div style={{fontSize:36,marginBottom:10}}>🎯</div>
+                <div style={{fontWeight:700,marginBottom:6}}>Nessun lead ancora</div>
+                <div style={{fontSize:12}}>Aggiungi un contatto caldo non ancora cliente.</div>
+              </div>
+            )}
+            {!leadsLoading&&filteredLeads.length>0&&(
+              <div style={S.card}>
+                <table style={S.tbl}>
+                  <thead><tr>{["Azienda","Telefono","Servizio interesse","Stato","Ricontatto",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {filteredLeads.map(l=>(
+                      <tr key={l.id}>
+                        <td style={S.td}><div style={{fontWeight:700}}>{l.company}</div>{l.contact&&<div style={{fontSize:11,color:"#64748b"}}>{l.contact}</div>}</td>
+                        <td style={S.td}>{l.phone}</td>
+                        <td style={S.td}>{l.serviceInterest||"—"}</td>
+                        <td style={S.td}><span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:LEAD_STATUS_BG[l.status]||"#f1f5f9",color:LEAD_STATUS_COLOR[l.status]||"#64748b"}}>{LEAD_STATUS_LABEL[l.status]||l.status}</span></td>
+                        <td style={S.td}>{l.callbackDate?fmt(l.callbackDate):"—"}</td>
+                        <td style={{...S.td,whiteSpace:"nowrap"}}>
+                          <button onClick={()=>{setOppPrefill({leadId:l.id});setEditOpp(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.suc,marginRight:6}}>💡</button>
+                          <button onClick={()=>{setEditLead(l);setLeadModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
+                          <button onClick={()=>deleteLead(l.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+
+        {view==="opportunita"&&(
+          <>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>💡 Opportunità ({opportunita.length})</h2>
+              <button onClick={()=>{setOppPrefill(null);setEditOpp(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.suc}}>➕ Nuova Opportunità</button>
+            </div>
+            {oppLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:32}}>Caricamento...</div>}
+            {!oppLoading&&opportunita.length===0&&(
+              <div style={{...S.card,textAlign:"center",color:"#94a3b8",padding:40}}>
+                <div style={{fontSize:36,marginBottom:10}}>💡</div>
+                <div style={{fontWeight:700,marginBottom:6}}>Nessuna opportunità ancora</div>
+                <div style={{fontSize:12}}>Le opportunità si creano solo esplicitamente, mai in automatico.</div>
+              </div>
+            )}
+            {!oppLoading&&opportunita.length>0&&(
+              <div style={S.card}>
+                <table style={S.tbl}>
+                  <thead><tr>{["Cliente/Lead","Servizio","Motivo","Data prevista","Stato",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {[...opportunita].sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||"")).map(o=>{
+                      const due=isOpportunityDue(o.dueDate)&&o.status==='aperta';
+                      return(
+                        <tr key={o.id} style={due?{background:"#fef2f2"}:undefined}>
+                          <td onClick={()=>{if(o.clientId){setSelId(o.clientId);setView("clienti");}}} style={{...S.td,cursor:o.clientId?"pointer":"default",fontWeight:700}}>{oppTargetLabel(o)}</td>
+                          <td style={S.td}>{o.service}</td>
+                          <td style={{...S.td,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.reason||"—"}</td>
+                          <td style={S.td}>
+                            {o.dueDate?fmt(o.dueDate):"—"}
+                            {due&&<span style={{marginLeft:6,fontSize:10,fontWeight:700,color:"#ef4444"}}>SCADUTA</span>}
+                          </td>
+                          <td style={S.td}><span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:OPP_STATUS_BG[o.status]||"#f1f5f9",color:OPP_STATUS_COLOR[o.status]||"#64748b"}}>{OPP_STATUS_LABEL[o.status]||o.status}</span></td>
+                          <td style={{...S.td,whiteSpace:"nowrap"}}>
+                            <button onClick={()=>{setEditOpp(o);setOppPrefill(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
+                            <button onClick={()=>deleteOpp(o.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1055,9 +1496,16 @@ function CrmApp({session,onLogout}){
               <div style={{marginBottom:16}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:70,resize:"vertical"}} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Note sul cliente..."/></div>
               <div style={{display:"flex",gap:10}}>
                 <button style={{...S.btn("lg"),...S.pri}} onClick={handleSave}>💾 Salva</button>
-                <button style={{...S.btn("lg"),...S.gho}} onClick={()=>{setEditId(null);setForm(EMPTY);setView("clienti");}}>Annulla</button>
+                <button style={{...S.btn("lg"),...S.gho}} onClick={()=>{setEditId(null);setForm(EMPTY);setNewClientCart([]);setView("clienti");}}>Annulla</button>
               </div>
             </div>
+
+            {!editId&&(
+              <div style={S.card}>
+                <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",marginBottom:10}}>🛒 Vendita iniziale (opzionale)</div>
+                <CartRowsEditor rows={newClientCart} setRows={setNewClientCart}/>
+              </div>
+            )}
           </>
         )}
       </div>

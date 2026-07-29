@@ -112,6 +112,7 @@ const SCHEMAS = {
     ['axpo', 'boolean', 'Axpo'],
     ['pod', 'nullable', 'POD'],
     ['pdr', 'nullable', 'PDR'],
+    ['price', 'text', 'Prezzo'],
   ],
   referenti: [
     ['id', 'raw', 'ID'],
@@ -121,6 +122,37 @@ const SCHEMAS = {
     ['phone', 'string', 'Telefono'],
     ['email', 'string', 'Email'],
     ['notes', 'string', 'Note'],
+  ],
+  timeline: [
+    ['id', 'raw', 'ID'],
+    ['clientId', 'raw', 'ID Cliente'],
+    ['date', 'string', 'Data'],
+    ['user', 'string', 'Utente'],
+    ['type', 'string', 'Tipo'],
+    ['text', 'string', 'Testo'],
+  ],
+  leads: [
+    ['id', 'raw', 'ID'],
+    ['company', 'string', 'Azienda'],
+    ['contact', 'string', 'Referente'],
+    ['phone', 'string', 'Telefono'],
+    ['email', 'string', 'Email'],
+    ['serviceInterest', 'string', 'Servizio di interesse'],
+    ['callbackDate', 'nullable', 'Ricontatto'],
+    ['callbackReason', 'string', 'Motivo ricontatto'],
+    ['notes', 'string', 'Note'],
+    ['status', 'string', 'Stato'],
+  ],
+  opportunita: [
+    ['id', 'raw', 'ID'],
+    ['clientId', 'raw', 'ID Cliente'],
+    ['leadId', 'raw', 'ID Lead'],
+    ['service', 'string', 'Servizio'],
+    ['reason', 'string', 'Motivo'],
+    ['dueDate', 'nullable', 'Data prevista'],
+    ['status', 'string', 'Stato'],
+    ['notes', 'string', 'Note'],
+    ['createdAt', 'string', 'Creato il'],
   ],
 };
 
@@ -135,6 +167,10 @@ function serializeCell(value, type) {
     case 'boolean': return value ? 'Sì' : 'No';
     case 'array': return Array.isArray(value) ? value.join(', ') : (value || '');
     case 'raw': return value === null || value === undefined ? '' : value;
+    // Leading apostrophe forces Sheets to store it as plain text under USER_ENTERED, so a
+    // decimal string like "29.99" isn't auto-parsed into a number and reformatted with a
+    // locale decimal separator (e.g. "29,99") the next time it's read back.
+    case 'text': return value === null || value === undefined || value === '' ? '' : `'${value}`;
     default: return value === null || value === undefined ? '' : value;
   }
 }
@@ -147,6 +183,7 @@ function deserializeCell(raw, type) {
     case 'boolean': return v === 'Sì' || v === true;
     case 'array': return v === '' ? [] : String(v).split(',').map((s) => s.trim()).filter(Boolean);
     case 'raw': return v === '' ? null : v;
+    case 'text': { const s = v === '' ? '' : String(v).replace(/^'/, ''); return s === '' ? null : s; }
     default: return v;
   }
 }

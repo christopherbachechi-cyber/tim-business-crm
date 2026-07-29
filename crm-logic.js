@@ -80,11 +80,31 @@
           axpo: !!row.axpo,
           pod: row.pod || null,
           pdr: row.pdr || null,
+          price: row.price ? Number(row.price) : null,
         });
       }
     }
     return out;
   }
 
-  return { CATALOG, computeServiceCounters, expandCartToRecords };
+  // Cliente in fornitura da almeno N mesi dalla stipula (sezione 6) — solo informativo,
+  // non deve mai generare opportunità automaticamente.
+  function isSeniorClient(contractStart, months) {
+    const threshold = months || 10;
+    if (!contractStart) return false;
+    const start = new Date(contractStart);
+    if (isNaN(start.getTime())) return false;
+    const monthsElapsed = (Date.now() - start.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
+    return monthsElapsed >= threshold;
+  }
+
+  // Un'opportunità è "scaduta/in scadenza" quando la data prevista è oggi o nel passato —
+  // usata solo per evidenziare la riga in tabella, mai per creare record.
+  function isOpportunityDue(dueDate) {
+    if (!dueDate) return false;
+    const today = new Date().toISOString().split('T')[0];
+    return String(dueDate).slice(0, 10) <= today;
+  }
+
+  return { CATALOG, computeServiceCounters, expandCartToRecords, isSeniorClient, isOpportunityDue };
 });

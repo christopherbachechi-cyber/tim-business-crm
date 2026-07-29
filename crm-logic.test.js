@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { computeServiceCounters, expandCartToRecords, CATALOG } = require('./crm-logic');
+const { computeServiceCounters, expandCartToRecords, CATALOG, isSeniorClient, isOpportunityDue } = require('./crm-logic');
 
 test('la somma dei "di cui" può superare il totale senza errori', () => {
   const services = [
@@ -79,4 +79,32 @@ test('il catalogo copre tutte le categorie richieste dalla specifica', () => {
   assert.deepEqual([...categories].sort(), ['aggiuntivo', 'energia', 'fissa', 'mobile']);
   const fixedProfiles = CATALOG.filter((p) => p.category === 'fissa').map((p) => p.profile);
   assert.deepEqual(fixedProfiles.sort(), ['ADSL', 'FTTC', 'FTTH', 'FWA']);
+});
+
+test('isSeniorClient: true solo da almeno 10 mesi dalla stipula (default)', () => {
+  const now = Date.now();
+  const elevenMonthsAgo = new Date(now - 11 * 30.44 * 86400000).toISOString().split('T')[0];
+  const threeMonthsAgo = new Date(now - 3 * 30.44 * 86400000).toISOString().split('T')[0];
+  assert.equal(isSeniorClient(elevenMonthsAgo), true);
+  assert.equal(isSeniorClient(threeMonthsAgo), false);
+  assert.equal(isSeniorClient(null), false);
+  assert.equal(isSeniorClient(undefined), false);
+});
+
+test('isSeniorClient: soglia personalizzabile in mesi', () => {
+  const now = Date.now();
+  const fourMonthsAgo = new Date(now - 4 * 30.44 * 86400000).toISOString().split('T')[0];
+  assert.equal(isSeniorClient(fourMonthsAgo, 3), true);
+  assert.equal(isSeniorClient(fourMonthsAgo, 6), false);
+});
+
+test('isOpportunityDue: true solo per date odierne o passate, mai per il futuro o valori nulli', () => {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+  const today = new Date().toISOString().split('T')[0];
+  assert.equal(isOpportunityDue(yesterday), true);
+  assert.equal(isOpportunityDue(today), true);
+  assert.equal(isOpportunityDue(tomorrow), false);
+  assert.equal(isOpportunityDue(null), false);
+  assert.equal(isOpportunityDue(undefined), false);
 });
