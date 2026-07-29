@@ -1,6 +1,9 @@
 {
   "name": "tim-sistema",
   "version": "1.0.0",
+  "scripts": {
+    "test": "node --test"
+  },
   "dependencies": {
     "@netlify/blobs": "6.5.0",
     "googleapis": "^140.0.0"

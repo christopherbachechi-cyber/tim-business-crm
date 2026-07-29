@@ -11,6 +11,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="crm-logic.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:'DM Sans','Segoe UI',sans-serif;background:#f4f6f9;min-height:100vh;color:#1a1f2e}
@@ -23,6 +24,7 @@ button{cursor:pointer}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useCallback}=React;
+const {CATALOG,computeServiceCounters,expandCartToRecords}=CrmLogic;
 
 const STORAGE_KEY='tim_crm_v2';
 const SESSION_KEY='tim_session';
@@ -38,9 +40,12 @@ async function apiLogin(username,password){
 }
 
 /* ── CRM DATA ─────────────────────────────────── */
-const PRODUCTS=["Fibra Business","ADSL Business","Mobile x1","Mobile x3","Mobile x5","Mobile x10","VoIP","Cloud PBX","Microsoft 365","Cybersecurity","SD-WAN","Energia"];
 const RISK={basso:{color:"#22c55e",bg:"#f0fdf4",label:"Basso"},medio:{color:"#f59e0b",bg:"#fffbeb",label:"Medio"},alto:{color:"#ef4444",bg:"#fef2f2",label:"Alto"}};
-const EMPTY={name:"",contact:"",phone:"",products:[],contractStart:"",contractEnd:"",retiFisse:0,retiMobili:0,centralino:false,trunk:false,notes:"",churnRisk:"basso"};
+const EMPTY={name:"",contact:"",phone:"",contractStart:"",contractEnd:"",notes:"",churnRisk:"basso"};
+const EMPTY_REFERENTE={name:"",role:"",phone:"",email:"",notes:""};
+const SERVICE_STATUS_LABEL={attivo:"Attivo","in attivazione":"In attivazione",cessato:"Cessato"};
+const CATEGORY_LABEL={fissa:"Rete fissa",mobile:"Mobile",aggiuntivo:"Profilo aggiuntivo",energia:"Energia"};
+const FLAG_LABEL={voceInternet:"Voce+Internet",soloInternet:"Solo Internet",backup:"Backup",casa:"Casa",voceDati:"Voce+Dati",soloDati:"Solo Dati",numeroVariabile:"Numero Variabile",axpo:"Axpo"};
 
 function daysUntil(d){return Math.ceil((new Date(d)-new Date())/86400000)}
 function yearsActive(d){if(!d)return null;return(new Date()-new Date(d))/(86400000*365)}
@@ -291,6 +296,177 @@ function ProspectModal({initial,onClose,onSaved}){
   );
 }
 
+/* ── REFERENTE MODAL (aggiungi/modifica referente) ── */
+function ReferenteModal({initial,onClose,onSaved}){
+  const [name,setName]=useState(initial?.name||'');
+  const [role,setRole]=useState(initial?.role||'');
+  const [phone,setPhone]=useState(initial?.phone||'');
+  const [email,setEmail]=useState(initial?.email||'');
+  const [notes,setNotes]=useState(initial?.notes||'');
+  const [err,setErr]=useState('');
+
+  const save=()=>{
+    if(!name.trim())return setErr('Inserisci il nome del referente');
+    onSaved({id:initial?.id,name:name.trim(),role:role.trim(),phone:phone.trim(),email:email.trim(),notes:notes.trim()});
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:440,boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>{initial?'✏️ Modifica referente':'➕ Nuovo referente'}</h2>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:12}}>
+          <div style={{gridColumn:'1/-1'}}><label style={S.lbl}>Nome *</label><input style={S.inp} value={name} onChange={e=>setName(e.target.value)} placeholder="Nome cognome" autoFocus/></div>
+          <div><label style={S.lbl}>Ruolo</label><input style={S.inp} value={role} onChange={e=>setRole(e.target.value)} placeholder="Es. Titolare"/></div>
+          <div><label style={S.lbl}>Telefono</label><input style={S.inp} value={phone} onChange={e=>setPhone(e.target.value)}/></div>
+          <div style={{gridColumn:'1/-1'}}><label style={S.lbl}>Email</label><input style={S.inp} value={email} onChange={e=>setEmail(e.target.value)}/></div>
+          <div style={{gridColumn:'1/-1'}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:60,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)}/></div>
+        </div>
+        {err&&<p style={{color:'#ef4444',fontSize:12,marginBottom:10}}>{err}</p>}
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={save} style={{...S.btn('lg'),...S.suc,flex:1}}>💾 Salva</button>
+          <button onClick={onClose} style={{...S.btn('lg'),...S.gho}}>Annulla</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── SERVICE FLAGS (checkbox pertinenti in base alla categoria) ── */
+function ServiceFlags({category,values,onChange}){
+  const flagsByCategory={fissa:['voceInternet','soloInternet','backup','casa'],mobile:['voceDati','soloDati','numeroVariabile'],energia:['axpo'],aggiuntivo:[]};
+  const flags=flagsByCategory[category]||[];
+  if(flags.length===0)return null;
+  return(
+    <div style={{display:'flex',flexWrap:'wrap',gap:10,marginTop:6}}>
+      {flags.map(f=>(
+        <label key={f} style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'#475569',cursor:'pointer'}}>
+          <input type="checkbox" checked={!!values[f]} onChange={e=>onChange(f,e.target.checked)}/>
+          {FLAG_LABEL[f]}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+/* ── SERVICE MODAL (modifica un singolo record di servizio) ── */
+function ServiceModal({service,onClose,onSaved}){
+  const [phone,setPhone]=useState(service.phone||'');
+  const [saleDate,setSaleDate]=useState(service.saleDate||'');
+  const [activationDate,setActivationDate]=useState(service.activationDate||'');
+  const [status,setStatus]=useState(service.status||'attivo');
+  const [notes,setNotes]=useState(service.notes||'');
+  const [flags,setFlags]=useState({
+    voceInternet:service.voceInternet,soloInternet:service.soloInternet,backup:service.backup,casa:service.casa,
+    voceDati:service.voceDati,soloDati:service.soloDati,numeroVariabile:service.numeroVariabile,axpo:service.axpo,
+  });
+  const [pod,setPod]=useState(service.pod||'');
+  const [pdr,setPdr]=useState(service.pdr||'');
+
+  const save=()=>{
+    onSaved({...service,phone:phone||null,saleDate,activationDate:activationDate||null,status,notes,...flags,pod:pod||null,pdr:pdr||null});
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:460,boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>✏️ {CATEGORY_LABEL[service.category]} — {service.profile}</h2>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:6}}>
+          <div><label style={S.lbl}>Numero telefonico</label><input style={S.inp} value={phone} onChange={e=>setPhone(e.target.value)} placeholder="Facoltativo"/></div>
+          <div><label style={S.lbl}>Stato</label>
+            <select style={{...S.inp,cursor:'pointer'}} value={status} onChange={e=>setStatus(e.target.value)}>
+              {Object.keys(SERVICE_STATUS_LABEL).map(k=><option key={k} value={k}>{SERVICE_STATUS_LABEL[k]}</option>)}
+            </select>
+          </div>
+          <div><label style={S.lbl}>Data vendita</label><input style={S.inp} type="date" value={saleDate} onChange={e=>setSaleDate(e.target.value)}/></div>
+          <div><label style={S.lbl}>Data attivazione</label><input style={S.inp} type="date" value={activationDate} onChange={e=>setActivationDate(e.target.value)}/></div>
+          {service.category==='energia'&&service.profile==='Luce'&&<div><label style={S.lbl}>POD</label><input style={S.inp} value={pod} onChange={e=>setPod(e.target.value)}/></div>}
+          {service.category==='energia'&&service.profile==='Gas'&&<div><label style={S.lbl}>PDR</label><input style={S.inp} value={pdr} onChange={e=>setPdr(e.target.value)}/></div>}
+        </div>
+        <ServiceFlags category={service.category} values={flags} onChange={(f,v)=>setFlags(x=>({...x,[f]:v}))}/>
+        <div style={{marginTop:12,marginBottom:14}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:60,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)}/></div>
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={save} style={{...S.btn('lg'),...S.suc,flex:1}}>💾 Salva</button>
+          <button onClick={onClose} style={{...S.btn('lg'),...S.gho}}>Annulla</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── CART MODAL (carrello vendita — genera record di servizio individuali) ── */
+function CartModal({onClose,onSaved}){
+  const emptyRow=()=>({category:'fissa',profile:'FTTH',quantity:1,phone:'',saleDate:todayStr(),notes:'',voceInternet:false,soloInternet:false,backup:false,casa:false,voceDati:false,soloDati:false,numeroVariabile:false,axpo:false,pod:'',pdr:''});
+  const [rows,setRows]=useState([emptyRow()]);
+  const [err,setErr]=useState('');
+  const [busy,setBusy]=useState(false);
+
+  const profilesFor=(category)=>CATALOG.filter(p=>p.category===category).map(p=>p.profile);
+
+  const updateRow=(i,patch)=>setRows(rs=>rs.map((r,idx)=>idx!==i?r:{...r,...patch}));
+  const setCategory=(i,category)=>updateRow(i,{category,profile:profilesFor(category)[0]});
+  const setFlag=(i,flag,val)=>updateRow(i,{[flag]:val});
+  const addRow=()=>setRows(rs=>[...rs,emptyRow()]);
+  const removeRow=(i)=>setRows(rs=>rs.filter((_,idx)=>idx!==i));
+
+  const save=async()=>{
+    if(rows.length===0)return setErr('Aggiungi almeno una riga');
+    setBusy(true);setErr('');
+    try{
+      await onSaved(rows);
+      onClose();
+    }catch(e){setErr('Errore: '+e.message);}
+    setBusy(false);
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:640,maxHeight:'85vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>🛒 Carrello vendita</h2>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
+        </div>
+        {rows.map((row,i)=>(
+          <div key={i} style={{border:'1.5px solid #e2e8f0',borderRadius:10,padding:14,marginBottom:12}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:700,color:'#94a3b8',textTransform:'uppercase'}}>Riga {i+1}</div>
+              {rows.length>1&&<button onClick={()=>removeRow(i)} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:12,fontWeight:700}}>🗑 Rimuovi</button>}
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 80px',gap:10,marginBottom:8}}>
+              <div><label style={S.lbl}>Categoria</label>
+                <select style={{...S.inp,cursor:'pointer'}} value={row.category} onChange={e=>setCategory(i,e.target.value)}>
+                  {Object.keys(CATEGORY_LABEL).map(k=><option key={k} value={k}>{CATEGORY_LABEL[k]}</option>)}
+                </select>
+              </div>
+              <div><label style={S.lbl}>Profilo</label>
+                <select style={{...S.inp,cursor:'pointer'}} value={row.profile} onChange={e=>updateRow(i,{profile:e.target.value})}>
+                  {profilesFor(row.category).map(p=><option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div><label style={S.lbl}>Qtà</label><input style={S.inp} type="number" min="1" value={row.quantity} onChange={e=>updateRow(i,{quantity:e.target.value})}/></div>
+            </div>
+            <ServiceFlags category={row.category} values={row} onChange={(f,v)=>setFlag(i,f,v)}/>
+            {row.category==='energia'&&row.profile==='Luce'&&<div style={{marginTop:8}}><label style={S.lbl}>POD</label><input style={S.inp} value={row.pod} onChange={e=>updateRow(i,{pod:e.target.value})}/></div>}
+            {row.category==='energia'&&row.profile==='Gas'&&<div style={{marginTop:8}}><label style={S.lbl}>PDR</label><input style={S.inp} value={row.pdr} onChange={e=>updateRow(i,{pdr:e.target.value})}/></div>}
+            <div style={{marginTop:8}}><label style={S.lbl}>Note riga</label><input style={S.inp} value={row.notes} onChange={e=>updateRow(i,{notes:e.target.value})}/></div>
+          </div>
+        ))}
+        <button onClick={addRow} style={{...S.btn('sm'),...S.gho,border:'1.5px dashed #cbd5e1',width:'100%',marginBottom:16}}>➕ Aggiungi riga</button>
+        {err&&<p style={{color:'#ef4444',fontSize:12,marginBottom:10}}>{err}</p>}
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={save} disabled={busy} style={{...S.btn('lg'),...S.suc,flex:1,opacity:busy?.7:1}}>{busy?'Salvataggio...':'💾 Salva vendita'}</button>
+          <button onClick={onClose} style={{...S.btn('lg'),...S.gho}}>Annulla</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── CRM APP (master only) ───────────────────── */
 function CrmApp({session,onLogout}){
   const [clients,setClients]=useState([]);
@@ -301,7 +477,7 @@ function CrmApp({session,onLogout}){
   const [editId,setEditId]=useState(null);
   const [form,setForm]=useState(EMPTY);
   const [search,setSearch]=useState("");
-  const [F,setF]=useState({attivoDa:"tutti",retiFisse:"tutti",retiMobili:"tutti",centralino:"tutti",trunk:"tutti"});
+  const [F,setF]=useState({attivoDa:"tutti",retiFisse:"tutti",retiMobili:"tutti",trunk:"tutti"});
   const [toast,setToast]=useState(null);
   const [appointments,setAppointments]=useState([]);
   const [apptLoading,setApptLoading]=useState(false);
@@ -312,6 +488,14 @@ function CrmApp({session,onLogout}){
   const [editProspect,setEditProspect]=useState(null);
   const [prospectSearch,setProspectSearch]=useState('');
   const [prospectStatusFilter,setProspectStatusFilter]=useState('tutti');
+  const [services,setServices]=useState([]);
+  const [servicesLoading,setServicesLoading]=useState(true);
+  const [referenti,setReferenti]=useState([]);
+  const [referentiLoading,setReferentiLoading]=useState(true);
+  const [showCartModal,setShowCartModal]=useState(false);
+  const [showReferenteModal,setShowReferenteModal]=useState(false);
+  const [editReferente,setEditReferente]=useState(null);
+  const [editService,setEditService]=useState(null);
 
   const notify=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),2500)};
   const setFilt=(k,v)=>setF(f=>({...f,[k]:v}));
@@ -344,6 +528,64 @@ function CrmApp({session,onLogout}){
   const dismissLocalBackup=()=>{
     try{localStorage.setItem(STORAGE_KEY+'_dismissed','1');}catch{}
     setLocalBackup(null);
+  };
+
+  const loadServices=useCallback(async()=>{
+    setServicesLoading(true);
+    try{const r=await fetch('/api/data?type=services');const d=await r.json();setServices(Array.isArray(d)?d:[]);}catch{setServices([]);}
+    setServicesLoading(false);
+  },[]);
+  useEffect(()=>{loadServices();},[loadServices]);
+
+  const loadReferenti=useCallback(async()=>{
+    setReferentiLoading(true);
+    try{const r=await fetch('/api/data?type=referenti');const d=await r.json();setReferenti(Array.isArray(d)?d:[]);}catch{setReferenti([]);}
+    setReferentiLoading(false);
+  },[]);
+  useEffect(()=>{loadReferenti();},[loadReferenti]);
+
+  const saveServices=async(list)=>{
+    setServices(list);
+    await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'services',data:list})});
+  };
+  const saveReferenti=async(list)=>{
+    setReferenti(list);
+    await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'referenti',data:list})});
+  };
+
+  const getClientServices=(clientId)=>services.filter(s=>s.clientId===clientId);
+  const getClientReferenti=(clientId)=>referenti.filter(r=>r.clientId===clientId);
+  const getCounters=(clientId)=>computeServiceCounters(getClientServices(clientId));
+
+  const handleCartSaved=async(rows)=>{
+    const newRecords=expandCartToRecords(rows,selId);
+    await saveServices([...services,...newRecords]);
+    notify(`${newRecords.length} servizi aggiunti ✓`);
+  };
+  const handleServiceSaved=(updated)=>{
+    saveServices(services.map(s=>s.id===updated.id?updated:s));
+    setEditService(null);
+    notify('Servizio aggiornato ✓');
+  };
+  const deleteService=(id)=>{
+    if(!window.confirm('Eliminare questo servizio?'))return;
+    saveServices(services.filter(s=>s.id!==id));
+    notify('Servizio eliminato');
+  };
+  const handleReferenteSaved=(r)=>{
+    if(editReferente){
+      saveReferenti(referenti.map(x=>x.id===r.id?r:x));
+      notify('Referente aggiornato ✓');
+    }else{
+      saveReferenti([...referenti,{...r,id:uid(),clientId:selId}]);
+      notify('Referente aggiunto ✓');
+    }
+    setShowReferenteModal(false);setEditReferente(null);
+  };
+  const deleteReferente=(id)=>{
+    if(!window.confirm('Eliminare questo referente?'))return;
+    saveReferenti(referenti.filter(r=>r.id!==id));
+    notify('Referente eliminato');
   };
 
   const loadAppointments=useCallback(async()=>{
@@ -401,12 +643,16 @@ function CrmApp({session,onLogout}){
   const handleSave=()=>{
     if(!form.name.trim())return notify("Inserisci il nome cliente","err");
     if(!form.contractEnd)return notify("Inserisci la scadenza contratto","err");
-    const clean={...form,retiFisse:Number(form.retiFisse),retiMobili:Number(form.retiMobili)};
-    if(editId){save(clients.map(c=>c.id===editId?{...clean,id:editId}:c));notify("Cliente aggiornato ✓");}
-    else{save([...clients,{...clean,id:Date.now()}]);notify("Cliente aggiunto ✓");}
+    if(editId){save(clients.map(c=>c.id===editId?{...form,id:editId}:c));notify("Cliente aggiornato ✓");}
+    else{save([...clients,{...form,id:Date.now()}]);notify("Cliente aggiunto ✓");}
     setEditId(null);setForm(EMPTY);setView("clienti");
   };
-  const handleDelete=(id)=>{save(clients.filter(c=>c.id!==id));setSelId(null);notify("Cliente eliminato");};
+  const handleDelete=(id)=>{
+    save(clients.filter(c=>c.id!==id));
+    saveServices(services.filter(s=>s.clientId!==id));
+    saveReferenti(referenti.filter(r=>r.clientId!==id));
+    setSelId(null);notify("Cliente eliminato");
+  };
   const startEdit=(c)=>{setEditId(c.id);setForm({...c});setView("form");};
 
   const match=(c)=>{
@@ -416,12 +662,12 @@ function CrmApp({session,onLogout}){
     if(F.attivoDa==="1-2"&&!(y!==null&&y>=1&&y<2))return false;
     if(F.attivoDa==="2-3"&&!(y!==null&&y>=2&&y<3))return false;
     if(F.attivoDa==="gt3"&&!(y!==null&&y>=3))return false;
-    if(F.retiFisse==="0"&&c.retiFisse!==0)return false;if(F.retiFisse==="1"&&c.retiFisse!==1)return false;
-    if(F.retiFisse==="2"&&c.retiFisse!==2)return false;if(F.retiFisse==="3+"&&c.retiFisse<3)return false;
-    if(F.retiMobili==="0"&&c.retiMobili!==0)return false;if(F.retiMobili==="1-3"&&!(c.retiMobili>=1&&c.retiMobili<=3))return false;
-    if(F.retiMobili==="4-9"&&!(c.retiMobili>=4&&c.retiMobili<=9))return false;if(F.retiMobili==="10+"&&c.retiMobili<10)return false;
-    if(F.centralino==="si"&&!c.centralino)return false;if(F.centralino==="no"&&c.centralino)return false;
-    if(F.trunk==="si"&&!c.trunk)return false;if(F.trunk==="no"&&c.trunk)return false;
+    const cnt=getCounters(c.id);
+    if(F.retiFisse==="0"&&cnt.retiFisseTotale!==0)return false;if(F.retiFisse==="1"&&cnt.retiFisseTotale!==1)return false;
+    if(F.retiFisse==="2"&&cnt.retiFisseTotale!==2)return false;if(F.retiFisse==="3+"&&cnt.retiFisseTotale<3)return false;
+    if(F.retiMobili==="0"&&cnt.mobiliTotale!==0)return false;if(F.retiMobili==="1-3"&&!(cnt.mobiliTotale>=1&&cnt.mobiliTotale<=3))return false;
+    if(F.retiMobili==="4-9"&&!(cnt.mobiliTotale>=4&&cnt.mobiliTotale<=9))return false;if(F.retiMobili==="10+"&&cnt.mobiliTotale<10)return false;
+    if(F.trunk==="si"&&cnt.trunk===0)return false;if(F.trunk==="no"&&cnt.trunk>0)return false;
     return true;
   };
 
@@ -537,59 +783,137 @@ function CrmApp({session,onLogout}){
             </div>
             <div style={{...S.card,padding:"12px 14px"}}>
               <input style={{...S.inp,marginBottom:10}} placeholder="🔍 Cerca..." value={search} onChange={e=>setSearch(e.target.value)}/>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
-                {[["attivoDa","Attivo da",[["tutti","Tutti"],["lt1","<1 anno"],["1-2","1-2 anni"],["2-3","2-3 anni"],["gt3",">3 anni"]]],["retiFisse","Reti fisse",[["tutti","Tutte"],["0","0"],["1","1"],["2","2"],["3+","3+"]]],["retiMobili","Reti mobili",[["tutti","Tutte"],["0","0"],["1-3","1-3"],["4-9","4-9"],["10+","10+"]]],["centralino","Centralino",[["tutti","Tutti"],["si","Sì"],["no","No"]]],["trunk","Trunk",[["tutti","Tutti"],["si","Sì"],["no","No"]]]].map(([fkey,label,opts])=>(
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+                {[["attivoDa","Attivo da",[["tutti","Tutti"],["lt1","<1 anno"],["1-2","1-2 anni"],["2-3","2-3 anni"],["gt3",">3 anni"]]],["retiFisse","Reti fisse",[["tutti","Tutte"],["0","0"],["1","1"],["2","2"],["3+","3+"]]],["retiMobili","Reti mobili",[["tutti","Tutte"],["0","0"],["1-3","1-3"],["4-9","4-9"],["10+","10+"]]],["trunk","Trunk",[["tutti","Tutti"],["si","Sì"],["no","No"]]]].map(([fkey,label,opts])=>(
                   <FSel key={fkey} label={label} fkey={fkey} opts={opts}/>
                 ))}
               </div>
             </div>
             <div style={S.card}>
               <table style={S.tbl}>
-                <thead><tr>{["Cliente","Stipula → Scad.","Fisse","Mobile","Centralino","Trunk","Rischio",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                <thead><tr>{["Cliente","Stipula → Scad.","Fisse","Mobile","Trunk","Rischio",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {filtered.map(c=>{
                     const d=daysUntil(c.contractEnd);
+                    const cnt=getCounters(c.id);
                     return(
                       <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>setSelId(c.id)}>
                         <td style={S.td}><div style={{fontWeight:700}}>{c.name}</div><div style={{fontSize:11,color:"#64748b"}}>{c.contact}</div></td>
                         <td style={S.td}><div style={{fontSize:11,color:"#64748b"}}>{fmt(c.contractStart)}</div><div style={{fontWeight:600,fontSize:12,color:d<0?"#ef4444":d<=30?"#f59e0b":"#0d1b4b"}}>{fmt(c.contractEnd)}</div>{d>=0&&d<=60&&<div style={{fontSize:10,color:"#f59e0b"}}>{d}gg</div>}{d<0&&<div style={{fontSize:10,color:"#ef4444"}}>Scaduto</div>}</td>
-                        <td style={S.td}><strong>{c.retiFisse}</strong></td><td style={S.td}><strong>{c.retiMobili}</strong></td>
-                        <td style={S.td}><span style={S.yn(c.centralino)}>{c.centralino?"Sì":"No"}</span></td>
-                        <td style={S.td}><span style={S.yn(c.trunk)}>{c.trunk?"Sì":"No"}</span></td>
+                        <td style={S.td}><strong>{cnt.retiFisseTotale}</strong></td><td style={S.td}><strong>{cnt.mobiliTotale}</strong></td>
+                        <td style={S.td}><span style={S.yn(cnt.trunk>0)}>{cnt.trunk>0?"Sì":"No"}</span></td>
                         <td style={S.td}><span style={S.badge(c.churnRisk)}>{RISK[c.churnRisk]?.label}</span></td>
                         <td style={S.td} onClick={e=>{e.stopPropagation();startEdit(c);}}><button style={{...S.btn("sm"),...S.pri}}>✏️</button></td>
                       </tr>
                     );
                   })}
-                  {filtered.length===0&&<tr><td colSpan={8} style={{...S.td,textAlign:"center",color:"#94a3b8",padding:24}}>Nessun cliente trovato</td></tr>}
+                  {filtered.length===0&&<tr><td colSpan={7} style={{...S.td,textAlign:"center",color:"#94a3b8",padding:24}}>Nessun cliente trovato</td></tr>}
                 </tbody>
               </table>
             </div>
           </>
         )}
 
-        {view==="clienti"&&selId&&sel&&(
+        {view==="clienti"&&selId&&sel&&(()=>{
+          const cnt=getCounters(selId);
+          const svc=getClientServices(selId);
+          const refs=getClientReferenti(selId);
+          return(
           <>
             <button style={{...S.btn("sm"),...S.gho,marginBottom:12,paddingLeft:0}} onClick={()=>setSelId(null)}>← Lista</button>
+            {showCartModal&&<CartModal onClose={()=>setShowCartModal(false)} onSaved={handleCartSaved}/>}
+            {showReferenteModal&&<ReferenteModal initial={editReferente} onClose={()=>{setShowReferenteModal(false);setEditReferente(null);}} onSaved={handleReferenteSaved}/>}
+            {editService&&<ServiceModal service={editService} onClose={()=>setEditService(null)} onSaved={handleServiceSaved}/>}
+
             <div style={S.card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
                 <div><h2 style={{fontSize:20,fontWeight:800,color:"#0d1b4b"}}>{sel.name}</h2><p style={{fontSize:12,color:"#64748b",marginTop:3}}>{sel.contact} · {sel.phone}</p></div>
                 <span style={S.badge(sel.churnRisk)}>Rischio {RISK[sel.churnRisk]?.label}</span>
               </div>
-              {[["Data stipula",fmt(sel.contractStart)],["Scadenza",fmt(sel.contractEnd)],["Reti fisse",sel.retiFisse],["Reti mobili",sel.retiMobili]].map(([l,v])=>(
+              {[["Data stipula",fmt(sel.contractStart)],["Scadenza",fmt(sel.contractEnd)]].map(([l,v])=>(
                 <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #f1f5f9",fontSize:13}}><span style={{color:"#64748b"}}>{l}</span><strong>{v}</strong></div>
               ))}
-              <div style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #f1f5f9",fontSize:13}}><span style={{color:"#64748b"}}>Centralino</span><span style={S.yn(sel.centralino)}>{sel.centralino?"Sì":"No"}</span></div>
-              <div style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #f1f5f9",fontSize:13}}><span style={{color:"#64748b"}}>Trunk</span><span style={S.yn(sel.trunk)}>{sel.trunk?"Sì":"No"}</span></div>
-              <div style={{padding:"9px 0",borderBottom:"1px solid #f1f5f9"}}><div style={{fontSize:12,color:"#64748b",marginBottom:6}}>Prodotti</div><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{sel.products.map(p=><span key={p} style={{fontSize:11,background:"#eff6ff",color:"#3b82f6",padding:"2px 8px",borderRadius:20,fontWeight:600}}>{p}</span>)}</div></div>
               {sel.notes&&<div style={{marginTop:12,background:"#f8fafc",borderRadius:8,padding:10,fontSize:13,color:"#475569"}}>📝 {sel.notes}</div>}
               <div style={{display:"flex",gap:8,marginTop:16}}>
                 <button style={{...S.btn("lg"),...S.pri}} onClick={()=>startEdit(sel)}>✏️ Modifica</button>
                 <button style={{...S.btn("lg"),...S.dan}} onClick={()=>handleDelete(sel.id)}>🗑 Elimina</button>
               </div>
             </div>
+
+            <div style={S.card}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b"}}>📶 Riepilogo Servizi</div>
+                <button onClick={()=>setShowCartModal(true)} style={{...S.btn("sm"),...S.suc}}>➕ Aggiungi vendita</button>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Reti fisse — totale {cnt.retiFisseTotale}</div>
+                  <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>Voce+Internet: <strong>{cnt.voceInternet}</strong> · Solo Internet: <strong>{cnt.soloInternet}</strong> · Backup: <strong>{cnt.backup}</strong> · Casa: <strong>{cnt.casa}</strong></div>
+                </div>
+                <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Mobile — totale {cnt.mobiliTotale}</div>
+                  <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>Voce+Dati: <strong>{cnt.voceDati}</strong> · Solo Dati: <strong>{cnt.soloDati}</strong> · Numero Variabile: <strong>{cnt.numeroVariabile}</strong></div>
+                </div>
+                <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Profili aggiuntivi</div>
+                  <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>TCE: <strong>{cnt.tce}</strong> · Trunk: <strong>{cnt.trunk}</strong> · TIM Comunica: <strong>{cnt.timComunica}</strong></div>
+                </div>
+                <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Energia</div>
+                  <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>POD: <strong>{cnt.pod}</strong> · PDR: <strong>{cnt.pdr}</strong></div>
+                </div>
+              </div>
+            </div>
+
+            <div style={S.card}>
+              <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>Servizi attivi ({svc.length})</div>
+              {servicesLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:20}}>Caricamento...</div>}
+              {!servicesLoading&&svc.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:20,fontSize:13}}>Nessun servizio ancora. Usa "➕ Aggiungi vendita".</div>}
+              {!servicesLoading&&svc.length>0&&(
+                <table style={S.tbl}>
+                  <thead><tr>{["Categoria","Profilo","Numero","Stato","Note",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {svc.map(s=>(
+                      <tr key={s.id}>
+                        <td style={S.td}>{CATEGORY_LABEL[s.category]}</td>
+                        <td style={S.td}><strong>{s.profile}</strong></td>
+                        <td style={S.td}>{s.phone||"—"}</td>
+                        <td style={S.td}>{SERVICE_STATUS_LABEL[s.status]||s.status}</td>
+                        <td style={{...S.td,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#94a3b8"}}>{s.notes||"—"}</td>
+                        <td style={{...S.td,whiteSpace:"nowrap"}}>
+                          <button onClick={()=>setEditService(s)} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
+                          <button onClick={()=>deleteService(s.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div style={S.card}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b"}}>👤 Referenti ({refs.length})</div>
+                <button onClick={()=>{setEditReferente(null);setShowReferenteModal(true);}} style={{...S.btn("sm"),...S.suc}}>➕ Aggiungi referente</button>
+              </div>
+              {referentiLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:20}}>Caricamento...</div>}
+              {!referentiLoading&&refs.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:20,fontSize:13}}>Nessun referente ancora.</div>}
+              {refs.map(r=>(
+                <div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #f8fafc"}}>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:13}}>{r.name}{r.role&&<span style={{fontWeight:400,color:"#64748b"}}> · {r.role}</span>}</div>
+                    <div style={{fontSize:12,color:"#64748b"}}>{[r.phone,r.email].filter(Boolean).join(" · ")||"—"}</div>
+                  </div>
+                  <div>
+                    <button onClick={()=>{setEditReferente(r);setShowReferenteModal(true);}} style={{...S.btn("sm"),...S.pri,marginRight:6}}>✏️</button>
+                    <button onClick={()=>deleteReferente(r.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </>
-        )}
+          );
+        })()}
 
         {view==="prospect"&&(
           <>
@@ -727,17 +1051,6 @@ function CrmApp({session,onLogout}){
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
                 <div><label style={S.lbl}>Data stipula</label><input style={S.inp} type="date" value={form.contractStart} onChange={e=>setForm(f=>({...f,contractStart:e.target.value}))}/></div>
                 <div><label style={S.lbl}>Scadenza *</label><input style={S.inp} type="date" value={form.contractEnd} onChange={e=>setForm(f=>({...f,contractEnd:e.target.value}))}/></div>
-              </div>
-              <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",marginBottom:10}}>Infrastruttura</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
-                <div><label style={S.lbl}>Reti fisse</label><input style={S.inp} type="number" min="0" value={form.retiFisse} onChange={e=>setForm(f=>({...f,retiFisse:e.target.value}))}/></div>
-                <div><label style={S.lbl}>Reti mobili</label><input style={S.inp} type="number" min="0" value={form.retiMobili} onChange={e=>setForm(f=>({...f,retiMobili:e.target.value}))}/></div>
-                <div><label style={S.lbl}>Centralino</label><select style={{...S.inp,cursor:"pointer"}} value={form.centralino?"si":"no"} onChange={e=>setForm(f=>({...f,centralino:e.target.value==="si"}))}><option value="no">No</option><option value="si">Sì</option></select></div>
-                <div><label style={S.lbl}>Trunk</label><select style={{...S.inp,cursor:"pointer"}} value={form.trunk?"si":"no"} onChange={e=>setForm(f=>({...f,trunk:e.target.value==="si"}))}><option value="no">No</option><option value="si">Sì</option></select></div>
-              </div>
-              <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",marginBottom:10}}>Prodotti attivi</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:16}}>
-                {PRODUCTS.map(p=><button key={p} type="button" onClick={()=>setForm(f=>({...f,products:f.products.includes(p)?f.products.filter(x=>x!==p):[...f.products,p]}))} style={{padding:"5px 10px",borderRadius:20,border:"1.5px solid",fontSize:12,fontWeight:600,cursor:"pointer",background:form.products.includes(p)?"#3b82f6":"#fff",color:form.products.includes(p)?"#fff":"#64748b",borderColor:form.products.includes(p)?"#3b82f6":"#e2e8f0"}}>{p}</button>)}
               </div>
               <div style={{marginBottom:16}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:70,resize:"vertical"}} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Note sul cliente..."/></div>
               <div style={{display:"flex",gap:10}}>
