@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#0d1b4b">
-<title>TIM Business – Call Center</title>
+<title>Bachex Call Center</title>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -117,8 +117,17 @@ function LoginScreen({onLogin}){
     <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0d1b4b 0%,#1e3a8a 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
       <div style={{background:'#fff',borderRadius:20,padding:'40px 32px',width:'100%',maxWidth:380,boxShadow:'0 24px 80px rgba(0,0,0,.35)'}}>
         <div style={{textAlign:'center',marginBottom:32}}>
-          <div style={{width:64,height:64,background:'linear-gradient(135deg,#0d1b4b,#3b82f6)',borderRadius:18,display:'flex',alignItems:'center',justifyContent:'center',fontSize:30,margin:'0 auto 16px',boxShadow:'0 8px 24px rgba(59,130,246,.3)'}}>📞</div>
-          <h1 style={{fontSize:22,fontWeight:800,color:'#0d1b4b',marginBottom:4}}>TIM Business</h1>
+          <div style={{width:64,height:64,background:'linear-gradient(135deg,#0d1b4b,#3b82f6)',borderRadius:18,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',boxShadow:'0 8px 24px rgba(59,130,246,.3)'}}>
+            <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <text x="20" y="32" textAnchor="middle" fontFamily="Arial, sans-serif" fontWeight="800" fontSize="22" fill="#fff">B</text>
+              <path d="M9 17 Q20 4 31 17" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+              <rect x="6" y="14" width="6" height="12" rx="3" fill="#fff"/>
+              <rect x="28" y="14" width="6" height="12" rx="3" fill="#fff"/>
+              <path d="M32 24 Q35 24 35 28 Q35 30 32.5 30 L27 30" stroke="#fff" strokeWidth="2" strokeLinecap="round" fill="none"/>
+              <circle cx="27" cy="30" r="1.6" fill="#fff"/>
+            </svg>
+          </div>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#0d1b4b',marginBottom:4}}>Bachex</h1>
           <p style={{fontSize:13,color:'#64748b'}}>Call Center</p>
         </div>
         <form onSubmit={go}>
@@ -138,7 +147,7 @@ function LoginScreen({onLogin}){
             {busy?'Accesso...':'Accedi →'}
           </button>
         </form>
-        <div style={{marginTop:20,padding:'10px 14px',background:'#f8fafc',borderRadius:10,fontSize:11,color:'#94a3b8',textAlign:'center'}}>🔒 Accesso riservato · TIM Business</div>
+        <div style={{marginTop:20,padding:'10px 14px',background:'#f8fafc',borderRadius:10,fontSize:11,color:'#94a3b8',textAlign:'center'}}>🔒 Accesso riservato · Bachex Call Center</div>
       </div>
     </div>
   );
@@ -366,7 +375,16 @@ function AgentApp({session,onLogout}){
       {showAddContact&&<AddContactModal phone={prefillPhone} onClose={()=>setShowAddContact(false)} onSaved={(c)=>{setContacts(cs=>[...cs,c]);setShowAddContact(false);notify('Contatto salvato ✓');}}/>}
       <header style={C.hdr}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <div style={{width:32,height:32,background:'#3b82f6',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center'}}>🎧</div>
+          <div style={{width:32,height:32,background:'#3b82f6',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <svg width="22" height="22" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <text x="20" y="32" textAnchor="middle" fontFamily="Arial, sans-serif" fontWeight="800" fontSize="22" fill="#fff">B</text>
+              <path d="M9 17 Q20 4 31 17" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+              <rect x="6" y="14" width="6" height="12" rx="3" fill="#fff"/>
+              <rect x="28" y="14" width="6" height="12" rx="3" fill="#fff"/>
+              <path d="M32 24 Q35 24 35 28 Q35 30 32.5 30 L27 30" stroke="#fff" strokeWidth="2" strokeLinecap="round" fill="none"/>
+              <circle cx="27" cy="30" r="1.6" fill="#fff"/>
+            </svg>
+          </div>
           <div>
             <div style={{fontSize:15,fontWeight:700}}>{session.name}</div>
             <div style={{fontSize:10,color:'#94a3b8',display:'flex',alignItems:'center',gap:4}}>
@@ -673,7 +691,16 @@ function ManagerApp({session,onLogout}){
       {showAddContact&&<AddContactModal phone={prefillPhone} onClose={()=>setShowAddContact(false)} onSaved={(c)=>{setContacts(cs=>[...cs,c]);setShowAddContact(false);notify('Contatto salvato ✓');}}/>}
       <header style={C.hdr}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <div style={{width:32,height:32,background:'#3b82f6',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center'}}>📊</div>
+          <div style={{width:32,height:32,background:'#3b82f6',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <svg width="22" height="22" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <text x="20" y="32" textAnchor="middle" fontFamily="Arial, sans-serif" fontWeight="800" fontSize="22" fill="#fff">B</text>
+              <path d="M9 17 Q20 4 31 17" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+              <rect x="6" y="14" width="6" height="12" rx="3" fill="#fff"/>
+              <rect x="28" y="14" width="6" height="12" rx="3" fill="#fff"/>
+              <path d="M32 24 Q35 24 35 28 Q35 30 32.5 30 L27 30" stroke="#fff" strokeWidth="2" strokeLinecap="round" fill="none"/>
+              <circle cx="27" cy="30" r="1.6" fill="#fff"/>
+            </svg>
+          </div>
           <div style={{fontSize:15,fontWeight:700}}>👑 {session.name} · Manager</div>
           {active&&<div style={{display:'flex',alignItems:'center',gap:6,background:'#22c55e',borderRadius:20,padding:'3px 10px',fontSize:12,fontWeight:700}}><span style={{width:7,height:7,borderRadius:'50%',background:'#fff',display:'inline-block'}}/>LIVE</div>}
         </div>

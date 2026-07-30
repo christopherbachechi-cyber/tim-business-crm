@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#0d1b4b">
 <meta name="mobile-web-app-capable" content="yes">
-<title>TIM Business CRM</title>
+<title>Bachex</title>
 <link rel="manifest" href="manifest.json">
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -162,8 +162,8 @@ function LoginScreen({onLogin}){
     <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0d1b4b 0%,#1e3a8a 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
       <div style={{background:'#fff',borderRadius:20,padding:'40px 32px',width:'100%',maxWidth:380,boxShadow:'0 24px 80px rgba(0,0,0,.35)'}}>
         <div style={{textAlign:'center',marginBottom:32}}>
-          <div style={{width:64,height:64,background:'linear-gradient(135deg,#0d1b4b,#3b82f6)',borderRadius:18,display:'flex',alignItems:'center',justifyContent:'center',fontSize:30,margin:'0 auto 16px',boxShadow:'0 8px 24px rgba(59,130,246,.3)'}}>📱</div>
-          <h1 style={{fontSize:22,fontWeight:800,color:'#0d1b4b',marginBottom:4}}>TIM Business</h1>
+          <div style={{width:64,height:64,background:'linear-gradient(135deg,#0d1b4b,#3b82f6)',borderRadius:18,display:'flex',alignItems:'center',justifyContent:'center',fontSize:28,fontWeight:800,color:'#fff',margin:'0 auto 16px',boxShadow:'0 8px 24px rgba(59,130,246,.3)'}}>B</div>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#0d1b4b',marginBottom:4}}>Bachex</h1>
           <p style={{fontSize:13,color:'#64748b'}}>Accedi al tuo account</p>
         </div>
 
@@ -207,7 +207,7 @@ function LoginScreen({onLogin}){
         </form>
 
         <div style={{marginTop:24,padding:'12px 16px',background:'#f8fafc',borderRadius:10,fontSize:11,color:'#94a3b8',textAlign:'center'}}>
-          🔒 Accesso riservato · TIM Business CRM
+          🔒 Accesso riservato · Bachex
         </div>
       </div>
     </div>
@@ -1150,14 +1150,15 @@ function CrmApp({session,onLogout}){
     labels:monthlyTrendMonths.map(m=>monthLabel(m)),
     datasets:[{label:'Servizi venduti',data:monthlyTrendMonths.map(m=>services.filter(s=>s.saleDate&&s.saleDate.slice(0,7)===m).length),borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,.12)',fill:true,tension:.3}],
   };
+  const portfolioMixCounts=[periodCounters.retiFisseTotale,periodCounters.mobiliTotale,periodLineeProfili,periodEnergia];
   const portfolioMixData={
-    labels:['Linee fisse','Linee mobili','Linee profili','Energia'],
-    datasets:[{data:[periodCounters.retiFisseTotale,periodCounters.mobiliTotale,periodLineeProfili,periodEnergia],backgroundColor:['#3b82f6','#22c55e','#f59e0b','#8b5cf6']}],
+    labels:['Linee fisse','Linee mobili','Linee profili','Energia'].map((l,i)=>`${l} (${portfolioMixCounts[i]})`),
+    datasets:[{data:portfolioMixCounts,backgroundColor:['#3b82f6','#22c55e','#f59e0b','#8b5cf6']}],
   };
   const apptStatusKeys=[...Object.keys(APPT_STATUS_LABEL),'non_impostato'];
   const apptStatusCounts=apptStatusKeys.map(k=>k==='non_impostato'?appointments.filter(a=>!a.status).length:appointments.filter(a=>a.status===k).length);
   const apptStatusData={
-    labels:[...Object.values(APPT_STATUS_LABEL),'Non impostato'],
+    labels:[...Object.values(APPT_STATUS_LABEL),'Non impostato'].map((l,i)=>`${l} (${apptStatusCounts[i]})`),
     datasets:[{data:apptStatusCounts,backgroundColor:[...Object.values(APPT_STATUS_COLOR),'#cbd5e1']}],
   };
   const todayAppts=appointments.filter(a=>a.date===todayStr());
@@ -1177,7 +1178,7 @@ function CrmApp({session,onLogout}){
 
   const mainTabs=TABS.filter(t=>t.k!=="prospect");
   const prospectTab=TABS.find(t=>t.k==="prospect");
-  const currentTabLabel=TABS.find(t=>t.k===view)?.l||(view==="form"?"➕ Nuovo cliente":"TIM Business CRM");
+  const currentTabLabel=TABS.find(t=>t.k===view)?.l||(view==="form"?"➕ Nuovo cliente":"Bachex");
 
   return(
     <div className="app-shell" style={S.app}>
@@ -1189,15 +1190,15 @@ function CrmApp({session,onLogout}){
       <aside className="sidebar">
         <div className="sidebar-top-row">
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:28,height:28,background:"#3b82f6",borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>📱</div>
-            <span style={{fontSize:13,fontWeight:700}}>TIM Business CRM</span>
+            <div style={{width:28,height:28,background:"#3b82f6",borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,flexShrink:0}}>B</div>
+            <span style={{fontSize:13,fontWeight:700}}>Bachex</span>
           </div>
           <button className="mobile-menu-btn" onClick={()=>setMobileMenuOpen(o=>!o)}>{mobileMenuOpen?"✕":"☰"}</button>
         </div>
         <div className={"sidebar-body"+(mobileMenuOpen?" mobile-open":"")}>
           <div style={{display:"flex",alignItems:"center",gap:10,padding:"18px 16px"}}>
-            <div style={{width:32,height:32,background:"#3b82f6",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📱</div>
-            <div style={{fontSize:14,fontWeight:700,lineHeight:1.2}}>TIM Business<br/>CRM</div>
+            <div style={{width:32,height:32,background:"#3b82f6",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:800,flexShrink:0}}>B</div>
+            <div style={{fontSize:14,fontWeight:700,lineHeight:1.2}}>Bachex</div>
           </div>
           <nav style={{display:"flex",flexDirection:"column",marginTop:8}}>
             {mainTabs.map(t=>(
@@ -1264,34 +1265,46 @@ function CrmApp({session,onLogout}){
                   {availableMonths.map(m=><option key={m} value={m}>{monthLabel(m)}</option>)}
                 </select>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:12,marginBottom:16}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:12}}>
                 <div style={{background:"#f8fafc",borderRadius:10,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:800,color:"#0d1b4b"}}>{periodCounters.retiFisseTotale}</div><div style={{fontSize:11,color:"#64748b",marginTop:2}}>Linee fisse</div></div>
                 <div style={{background:"#f8fafc",borderRadius:10,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:800,color:"#0d1b4b"}}>{periodCounters.mobiliTotale}</div><div style={{fontSize:11,color:"#64748b",marginTop:2}}>Linee mobili</div></div>
                 <div style={{background:"#f8fafc",borderRadius:10,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:800,color:"#0d1b4b"}}>{periodLineeProfili}</div><div style={{fontSize:11,color:"#64748b",marginTop:2}}>Linee profili</div></div>
                 <div style={{background:"#f8fafc",borderRadius:10,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:800,color:"#0d1b4b"}}>{periodEnergia}</div><div style={{fontSize:11,color:"#64748b",marginTop:2}}>Energia (Luce+Gas)</div></div>
               </div>
-              {(periodCounters.retiFisseTotale+periodCounters.mobiliTotale+periodLineeProfili+periodEnergia)>0&&(
-                <div style={{maxWidth:280,margin:"0 auto"}}>
-                  <ChartCanvas type="doughnut" data={portfolioMixData} height={220}/>
-                </div>
-              )}
             </div>
 
-            {monthlyTrendMonths.length>0&&(
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:12}}>
+              <div style={S.card}>
+                <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:14}}>🍩 Composizione portafoglio</div>
+                {(periodCounters.retiFisseTotale+periodCounters.mobiliTotale+periodLineeProfili+periodEnergia)>0?(
+                  <div style={{maxWidth:280,margin:"0 auto"}}>
+                    <ChartCanvas type="doughnut" data={portfolioMixData} height={220}/>
+                  </div>
+                ):(
+                  <div style={{textAlign:"center",color:"#94a3b8",fontSize:13,padding:"40px 0"}}>Nessun dato disponibile{dashboardMonth!=='all'&&' per il periodo selezionato'}</div>
+                )}
+              </div>
+
               <div style={S.card}>
                 <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:14}}>📈 Andamento vendite mensili</div>
-                <ChartCanvas type="line" data={monthlyTrendData} height={220} options={{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}}/>
+                {monthlyTrendMonths.length>0?(
+                  <ChartCanvas type="line" data={monthlyTrendData} height={220} options={{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}}/>
+                ):(
+                  <div style={{textAlign:"center",color:"#94a3b8",fontSize:13,padding:"40px 0"}}>Nessun dato disponibile</div>
+                )}
               </div>
-            )}
 
-            {appointments.length>0&&(
               <div style={S.card}>
                 <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:14}}>🍩 Stato appuntamenti</div>
-                <div style={{maxWidth:280,margin:"0 auto"}}>
-                  <ChartCanvas type="doughnut" data={apptStatusData} height={220}/>
-                </div>
+                {appointments.length>0?(
+                  <div style={{maxWidth:280,margin:"0 auto"}}>
+                    <ChartCanvas type="doughnut" data={apptStatusData} height={220}/>
+                  </div>
+                ):(
+                  <div style={{textAlign:"center",color:"#94a3b8",fontSize:13,padding:"40px 0"}}>Nessun dato disponibile</div>
+                )}
               </div>
-            )}
+            </div>
 
             {todayAppts.length>0&&(
               <div style={{...S.card,borderLeft:"4px solid #8b5cf6"}}>
