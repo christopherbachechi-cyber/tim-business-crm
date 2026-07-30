@@ -53,6 +53,14 @@
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   }
 
+  // "Oggi" nel fuso orario locale, non UTC — Date.toISOString() è sempre UTC, quindi per
+  // chi si trova in un fuso avanti rispetto a UTC (es. Italia) le prime ore dopo mezzanotte
+  // risultavano ancora "ieri", facendo sparire scadenze/opportunità dovute proprio oggi.
+  function localDateStr(d) {
+    d = d || new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
   // Espande le righe del carrello in record di servizio individuali (sezioni 10/11).
   // Righe con lo stesso profilo ma flag diversi restano sempre separate, mai accorpate.
   function expandCartToRecords(cartRows, clientId) {
@@ -66,7 +74,7 @@
           category: row.category,
           profile: row.profile,
           phone: row.phone || null,
-          saleDate: row.saleDate || new Date().toISOString().split('T')[0],
+          saleDate: row.saleDate || localDateStr(),
           activationDate: row.activationDate || null,
           status: row.status || 'attivo',
           notes: row.notes || '',
@@ -102,9 +110,8 @@
   // usata solo per evidenziare la riga in tabella, mai per creare record.
   function isOpportunityDue(dueDate) {
     if (!dueDate) return false;
-    const today = new Date().toISOString().split('T')[0];
-    return String(dueDate).slice(0, 10) <= today;
+    return String(dueDate).slice(0, 10) <= localDateStr();
   }
 
-  return { CATALOG, computeServiceCounters, expandCartToRecords, isSeniorClient, isOpportunityDue };
+  return { CATALOG, computeServiceCounters, expandCartToRecords, isSeniorClient, isOpportunityDue, localDateStr };
 });

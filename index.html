@@ -11,6 +11,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="crm-logic.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -18,13 +19,36 @@ body{font-family:'DM Sans','Segoe UI',sans-serif;background:#f4f6f9;min-height:1
 input,select,textarea,button{font-family:inherit}
 button{cursor:pointer}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
+.row-hover{transition:background-color .12s ease}
+.row-hover:hover{background-color:#f8fafc}
+.card-hover{transition:box-shadow .15s ease,transform .15s ease}
+.card-hover:hover{box-shadow:0 2px 4px rgba(15,23,42,.06),0 8px 20px rgba(15,23,42,.1);transform:translateY(-1px)}
+.app-shell{display:flex;min-height:100vh}
+.sidebar{width:230px;flex-shrink:0;background:linear-gradient(180deg,#0d1b4b 0%,#1e3a8a 100%);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;z-index:100}
+.sidebar-top-row{display:none}
+.mobile-menu-btn{display:none}
+.sidebar-body{display:flex;flex-direction:column;flex:1;min-height:0}
+.sidebar-link{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:9px;margin:2px 12px;cursor:pointer;font-size:13px;font-weight:600;color:rgba(255,255,255,.75);transition:background-color .12s ease,color .12s ease;border:none;background:transparent;width:calc(100% - 24px);text-align:left}
+.sidebar-link:hover{background:rgba(255,255,255,.08);color:#fff}
+.sidebar-link.active{background:rgba(255,255,255,.16);color:#fff}
+.sidebar-divider{height:1px;background:rgba(255,255,255,.12);margin:10px 16px}
+.main-area{flex:1;min-width:0}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;background:#fff;border-bottom:1px solid #eef0f4}
+@media (max-width:860px){
+  .app-shell{flex-direction:column}
+  .sidebar{position:sticky;width:100%;height:auto;overflow-y:visible}
+  .sidebar-top-row{display:flex;justify-content:space-between;align-items:center;padding:10px 16px}
+  .mobile-menu-btn{display:block;background:none;border:none;color:#fff;font-size:20px;cursor:pointer;padding:4px 10px}
+  .sidebar-body{display:none}
+  .sidebar-body.mobile-open{display:flex;position:absolute;top:100%;left:0;right:0;background:#0d1b4b;box-shadow:0 12px 24px rgba(0,0,0,.35);max-height:calc(100vh - 56px);overflow-y:auto;z-index:150}
+}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const {useState,useEffect,useCallback}=React;
-const {CATALOG,computeServiceCounters,expandCartToRecords,isSeniorClient,isOpportunityDue}=CrmLogic;
+const {useState,useEffect,useCallback,useRef}=React;
+const {CATALOG,computeServiceCounters,expandCartToRecords,isSeniorClient,isOpportunityDue,localDateStr}=CrmLogic;
 
 const STORAGE_KEY='tim_crm_v2';
 const SESSION_KEY='tim_session';
@@ -51,7 +75,9 @@ function daysUntil(d){return Math.ceil((new Date(d)-new Date())/86400000)}
 function yearsActive(d){if(!d)return null;return(new Date()-new Date(d))/(86400000*365)}
 function fmt(d){if(!d)return"—";return new Date(d).toLocaleDateString("it-IT",{day:"2-digit",month:"short",year:"numeric"})}
 function fmtTime(d){if(!d)return"—";return new Date(d).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}
-function todayStr(){return new Date().toISOString().split("T")[0]}
+function todayStr(){return localDateStr()}
+const MONTH_NAMES=["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+function monthLabel(ym){const[y,m]=ym.split("-");return`${MONTH_NAMES[Number(m)-1]} ${y}`}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 
 /* ── ANAGRAFICA CALL CENTER (contatti/prospect, separati dai Clienti) ── */
@@ -69,6 +95,11 @@ const OPP_STATUS_LABEL={aperta:'Aperta',vinta:'Vinta',persa:'Persa'};
 const OPP_STATUS_COLOR={aperta:'#3b82f6',vinta:'#22c55e',persa:'#ef4444'};
 const OPP_STATUS_BG={aperta:'#eff6ff',vinta:'#f0fdf4',persa:'#fef2f2'};
 
+/* ── STATO APPUNTAMENTO (modificabile dopo la creazione) ── */
+const APPT_STATUS_LABEL={in_valuta:'In valuta',positivo:'Positivo',negativo:'Negativo',moroso:'Moroso',non_valido:'Non valido'};
+const APPT_STATUS_COLOR={in_valuta:'#3b82f6',positivo:'#22c55e',negativo:'#ef4444',moroso:'#f59e0b',non_valido:'#64748b'};
+const APPT_STATUS_BG={in_valuta:'#eff6ff',positivo:'#f0fdf4',negativo:'#fef2f2',moroso:'#fffbeb',non_valido:'#f1f5f9'};
+
 function describeServiceFlags(s){
   const active=Object.keys(FLAG_LABEL).filter(f=>s[f]).map(f=>FLAG_LABEL[f]);
   return active.length?` (${active.join(', ')})`:'';
@@ -81,14 +112,14 @@ function flagsList(s){
 /* ── STYLES ───────────────────────────────────── */
 const S={
   app:{fontFamily:"'DM Sans','Segoe UI',sans-serif",background:"#f4f6f9",minHeight:"100vh"},
-  hdr:{background:"#0d1b4b",color:"#fff",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 8px rgba(0,0,0,.2)"},
-  wrap:{padding:"16px",maxWidth:960,margin:"0 auto"},
-  card:{background:"#fff",borderRadius:12,padding:16,boxShadow:"0 1px 4px rgba(0,0,0,.07)",marginBottom:12},
-  inp:{padding:"9px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:13,outline:"none",width:"100%",background:"#fff"},
-  sel:{padding:"8px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,background:"#fff",cursor:"pointer",color:"#1a1f2e",width:"100%"},
+  hdr:{background:"linear-gradient(135deg,#0d1b4b 0%,#1e3a8a 100%)",color:"#fff",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 8px rgba(0,0,0,.2)"},
+  wrap:{padding:"20px",maxWidth:1100,margin:"0 auto"},
+  card:{background:"#fff",borderRadius:16,padding:20,boxShadow:"0 1px 2px rgba(15,23,42,.04),0 4px 12px rgba(15,23,42,.06)",border:"1px solid rgba(15,23,42,.04)",marginBottom:14},
+  inp:{padding:"9px 12px",borderRadius:9,border:"1.5px solid #e2e8f0",fontSize:13,outline:"none",width:"100%",background:"#fff"},
+  sel:{padding:"8px 10px",borderRadius:9,border:"1.5px solid #e2e8f0",fontSize:12,background:"#fff",cursor:"pointer",color:"#1a1f2e",width:"100%"},
   lbl:{fontSize:11,fontWeight:600,color:"#475569",marginBottom:4,display:"block"},
-  nb:(a)=>({padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,background:a?"#3b82f6":"rgba(255,255,255,.12)",color:"#fff"}),
-  btn:(v)=>({padding:v==="sm"?"6px 12px":v==="lg"?"12px 20px":"9px 16px",borderRadius:8,border:"none",cursor:"pointer",fontSize:v==="sm"?12:13,fontWeight:700}),
+  nb:(a)=>({padding:"7px 10px",borderRadius:9,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,background:a?"#3b82f6":"rgba(255,255,255,.12)",color:"#fff"}),
+  btn:(v)=>({padding:v==="sm"?"6px 12px":v==="lg"?"12px 20px":"9px 16px",borderRadius:9,border:"none",cursor:"pointer",fontSize:v==="sm"?12:13,fontWeight:700}),
   pri:{background:"#3b82f6",color:"#fff"},
   suc:{background:"#22c55e",color:"#fff"},
   dan:{background:"#fee2e2",color:"#ef4444"},
@@ -762,12 +793,26 @@ function DocumentsModal({clientId,serviceId,title,onClose}){
   );
 }
 
+/* ── CHART CANVAS (wrapper Chart.js — niente librerie React, solo useRef+useEffect) ── */
+function ChartCanvas({type,data,options,height}){
+  const canvasRef=useRef(null);
+  const chartRef=useRef(null);
+  useEffect(()=>{
+    if(!canvasRef.current||typeof Chart==='undefined')return;
+    chartRef.current=new Chart(canvasRef.current,{type,data,options:{responsive:true,maintainAspectRatio:false,...options}});
+    return()=>{chartRef.current?.destroy();};
+  },[JSON.stringify(data),type]);
+  return <div style={{height:height||220}}><canvas ref={canvasRef}/></div>;
+}
+
 /* ── CRM APP (master only) ───────────────────── */
 function CrmApp({session,onLogout}){
   const [clients,setClients]=useState([]);
   const [clientsLoading,setClientsLoading]=useState(true);
   const [localBackup,setLocalBackup]=useState(null);
   const [view,setView]=useState("dashboard");
+  const [dashboardMonth,setDashboardMonth]=useState(todayStr().slice(0,7));
+  const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
   const [selId,setSelId]=useState(null);
   const [editId,setEditId]=useState(null);
   const [form,setForm]=useState(EMPTY);
@@ -990,7 +1035,13 @@ function CrmApp({session,onLogout}){
     setApptLoading(false);
   },[]);
 
-  useEffect(()=>{if(view==="appuntamenti")loadAppointments();},[view,loadAppointments]);
+  useEffect(()=>{loadAppointments();},[loadAppointments]);
+
+  const updateAppointmentStatus=async(id,status)=>{
+    const updated=appointments.map(a=>a.id===id?{...a,status}:a);
+    setAppointments(updated);
+    await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'appointments',data:updated})});
+  };
 
   const loadProspects=useCallback(async()=>{
     setProspectsLoading(true);
@@ -1083,10 +1134,32 @@ function CrmApp({session,onLogout}){
   };
 
   const filtered=clients.filter(match);
-  const expiring=clients.filter(c=>daysUntil(c.contractEnd)<=60&&daysUntil(c.contractEnd)>=0);
+  const expiring=clients.filter(c=>daysUntil(c.contractEnd)<=30&&daysUntil(c.contractEnd)>=0);
   const expired=clients.filter(c=>daysUntil(c.contractEnd)<0);
-  const highRisk=clients.filter(c=>c.churnRisk==="alto");
   const sel=clients.find(c=>c.id===selId);
+  const dueOpportunita=opportunita.filter(o=>o.status==='aperta'&&isOpportunityDue(o.dueDate));
+  const leadsToRecontact=leads.filter(l=>l.status!=='convertito'&&l.status!=='perso'&&l.callbackDate&&l.callbackDate<=todayStr());
+  const seniorClients=clients.filter(c=>isSeniorClient(c.contractStart));
+  const availableMonths=[...new Set(services.filter(s=>s.saleDate).map(s=>s.saleDate.slice(0,7)))].sort().reverse();
+  const periodServices=dashboardMonth==='all'?services:services.filter(s=>s.saleDate&&s.saleDate.slice(0,7)===dashboardMonth);
+  const periodCounters=computeServiceCounters(periodServices);
+  const periodLineeProfili=periodCounters.tce+periodCounters.trunk+periodCounters.timComunica;
+  const periodEnergia=periodCounters.pod+periodCounters.pdr;
+  const monthlyTrendMonths=[...availableMonths].reverse();
+  const monthlyTrendData={
+    labels:monthlyTrendMonths.map(m=>monthLabel(m)),
+    datasets:[{label:'Servizi venduti',data:monthlyTrendMonths.map(m=>services.filter(s=>s.saleDate&&s.saleDate.slice(0,7)===m).length),borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,.12)',fill:true,tension:.3}],
+  };
+  const portfolioMixData={
+    labels:['Linee fisse','Linee mobili','Linee profili','Energia'],
+    datasets:[{data:[periodCounters.retiFisseTotale,periodCounters.mobiliTotale,periodLineeProfili,periodEnergia],backgroundColor:['#3b82f6','#22c55e','#f59e0b','#8b5cf6']}],
+  };
+  const apptStatusKeys=[...Object.keys(APPT_STATUS_LABEL),'non_impostato'];
+  const apptStatusCounts=apptStatusKeys.map(k=>k==='non_impostato'?appointments.filter(a=>!a.status).length:appointments.filter(a=>a.status===k).length);
+  const apptStatusData={
+    labels:[...Object.values(APPT_STATUS_LABEL),'Non impostato'],
+    datasets:[{data:apptStatusCounts,backgroundColor:[...Object.values(APPT_STATUS_COLOR),'#cbd5e1']}],
+  };
   const todayAppts=appointments.filter(a=>a.date===todayStr());
   const upcomingAppts=appointments.filter(a=>a.date>=todayStr()).sort((a,b)=>a.date.localeCompare(b.date));
   const pastAppts=appointments.filter(a=>a.date<todayStr()).sort((a,b)=>b.date.localeCompare(a.date));
@@ -1102,37 +1175,62 @@ function CrmApp({session,onLogout}){
     </div>
   );
 
+  const mainTabs=TABS.filter(t=>t.k!=="prospect");
+  const prospectTab=TABS.find(t=>t.k==="prospect");
+  const currentTabLabel=TABS.find(t=>t.k===view)?.l||(view==="form"?"➕ Nuovo cliente":"TIM Business CRM");
+
   return(
-    <div style={S.app}>
+    <div className="app-shell" style={S.app}>
       {toast&&<div style={S.toast(toast.type)}>{toast.msg}</div>}
       {showApptModal&&<AppointmentModal onClose={()=>setShowApptModal(false)} onSaved={()=>{loadAppointments();notify('Appuntamento salvato ✓');}}/>}
       {prospectModalOpen&&<ProspectModal initial={editProspect} onClose={()=>{setProspectModalOpen(false);setEditProspect(null);}} onSaved={handleProspectSaved}/>}
       {leadModalOpen&&<LeadModal initial={editLead} onClose={()=>{setLeadModalOpen(false);setEditLead(null);}} onSaved={handleLeadSaved}/>}
       {oppModalOpen&&<OpportunitaModal initial={editOpp} prefill={oppPrefill} clients={clients} leads={leads} onClose={()=>{setOppModalOpen(false);setEditOpp(null);setOppPrefill(null);}} onSaved={handleOppSaved}/>}
-      <header style={S.hdr}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:32,height:32,background:"#3b82f6",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>📱</div>
-          <div>
-            <div style={{fontSize:15,fontWeight:700}}>TIM Business CRM</div>
-            <div style={{fontSize:10,color:"#94a3b8"}}>{session.name} · Master</div>
+      <aside className="sidebar">
+        <div className="sidebar-top-row">
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:28,height:28,background:"#3b82f6",borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>📱</div>
+            <span style={{fontSize:13,fontWeight:700}}>TIM Business CRM</span>
+          </div>
+          <button className="mobile-menu-btn" onClick={()=>setMobileMenuOpen(o=>!o)}>{mobileMenuOpen?"✕":"☰"}</button>
+        </div>
+        <div className={"sidebar-body"+(mobileMenuOpen?" mobile-open":"")}>
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"18px 16px"}}>
+            <div style={{width:32,height:32,background:"#3b82f6",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📱</div>
+            <div style={{fontSize:14,fontWeight:700,lineHeight:1.2}}>TIM Business<br/>CRM</div>
+          </div>
+          <nav style={{display:"flex",flexDirection:"column",marginTop:8}}>
+            {mainTabs.map(t=>(
+              <button key={t.k} className={"sidebar-link"+(view===t.k?" active":"")} onClick={()=>{setView(t.k);setSelId(null);setMobileMenuOpen(false);}}>
+                <span>{t.l}</span>
+                {t.k==="appuntamenti"&&todayAppts.length>0&&<span style={{marginLeft:"auto",background:"#ef4444",borderRadius:10,padding:"1px 6px",fontSize:10}}>{todayAppts.length}</span>}
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar-divider"/>
+          <nav style={{display:"flex",flexDirection:"column"}}>
+            <button className={"sidebar-link"+(view===prospectTab.k?" active":"")} onClick={()=>{setView(prospectTab.k);setSelId(null);setMobileMenuOpen(false);}}>{prospectTab.l}</button>
+            <a href="/callcenter.html" className="sidebar-link" style={{textDecoration:"none",color:"#4ade80"}} onClick={()=>setMobileMenuOpen(false)}>📞 Call Center</a>
+          </nav>
+          <div style={{flex:1}}/>
+          <div style={{padding:"14px 16px",borderTop:"1px solid rgba(255,255,255,.12)",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,flexShrink:0}}>{session.name?.slice(0,2).toUpperCase()}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{session.name}</div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,.6)"}}>Master</div>
+            </div>
+            <button onClick={()=>{clearSession();onLogout();}} title="Esci" style={{background:"none",border:"none",color:"rgba(255,255,255,.7)",cursor:"pointer",fontSize:16}}>⏻</button>
           </div>
         </div>
-        <nav style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-          {TABS.map(t=>(
-            <button key={t.k} style={S.nb(view===t.k)} onClick={()=>{setView(t.k);setSelId(null);}}>
-              {t.l}
-              {t.k==="appuntamenti"&&todayAppts.length>0&&<span style={{marginLeft:5,background:"#ef4444",borderRadius:10,padding:"1px 6px",fontSize:10}}>{todayAppts.length}</span>}
-            </button>
-          ))}
-          <div style={{width:1,alignSelf:"stretch",background:"rgba(255,255,255,.15)",margin:"0 4px"}}/>
-          <button
-            style={{padding:"7px 10px",borderRadius:8,border:"1.5px solid rgba(255,255,255,.3)",cursor:"pointer",fontSize:12,fontWeight:700,background:"transparent",color:"#fff"}}
-            onClick={()=>{setEditId(null);setForm(EMPTY);setNewClientCart([]);setView("form");}}
-          >+ Aggiungi</button>
-          <a href="/callcenter.html" style={{padding:"7px 12px",borderRadius:8,fontSize:12,fontWeight:700,background:"#22c55e",color:"#fff",textDecoration:"none"}}>📞 Call Center</a>
-          <button onClick={()=>{clearSession();onLogout();}} style={{...S.nb(false),background:"rgba(239,68,68,.3)"}}>Esci</button>
-        </nav>
-      </header>
+      </aside>
+      <div className="main-area">
+        <div className="topbar">
+          <div style={{fontSize:15,fontWeight:700,color:"#0d1b4b"}}>{currentTabLabel}</div>
+          <div style={{position:"relative",fontSize:18}}>
+            🔔
+            {todayAppts.length>0&&<span style={{position:"absolute",top:-4,right:-6,background:"#ef4444",color:"#fff",borderRadius:10,padding:"0px 5px",fontSize:9,fontWeight:700}}>{todayAppts.length}</span>}
+          </div>
+        </div>
 
       <div style={S.wrap}>
         {localBackup&&(
@@ -1153,13 +1251,50 @@ function CrmApp({session,onLogout}){
               <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>Benvenuto, {session.name}</h2>
               <p style={{fontSize:12,color:"#64748b",marginTop:3}}>Riepilogo del tuo portafoglio</p>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:14}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:14}}>
               <div style={{...S.card,marginBottom:0,textAlign:"center"}}><div style={{fontSize:26,fontWeight:800,color:"#0d1b4b"}}>{clients.length}</div><div style={{fontSize:11,color:"#64748b",marginTop:2,fontWeight:500}}>Clienti totali</div></div>
-              <div style={{...S.card,marginBottom:0,textAlign:"center",borderLeft:"3px solid #f59e0b"}}><div style={{fontSize:26,fontWeight:800,color:"#f59e0b"}}>{expiring.length}</div><div style={{fontSize:11,color:"#64748b",marginTop:2,fontWeight:500}}>Scadenze entro 60gg</div></div>
-              <div style={{...S.card,marginBottom:0,textAlign:"center",borderLeft:"3px solid #ef4444"}}><div style={{fontSize:26,fontWeight:800,color:"#ef4444"}}>{highRisk.length}</div><div style={{fontSize:11,color:"#64748b",marginTop:2,fontWeight:500}}>Rischio alto</div></div>
+              <div style={{...S.card,marginBottom:0,textAlign:"center",borderLeft:"3px solid #f59e0b"}}><div style={{fontSize:26,fontWeight:800,color:"#f59e0b"}}>{expiring.length}</div><div style={{fontSize:11,color:"#64748b",marginTop:2,fontWeight:500}}>Scadenze entro 30gg</div></div>
             </div>
+
+            <div style={S.card}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:14}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b"}}>📊 Vendite per periodo</div>
+                <select style={{...S.sel,width:"auto"}} value={dashboardMonth} onChange={e=>setDashboardMonth(e.target.value)}>
+                  <option value="all">Tutto il periodo</option>
+                  {availableMonths.map(m=><option key={m} value={m}>{monthLabel(m)}</option>)}
+                </select>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:12,marginBottom:16}}>
+                <div style={{background:"#f8fafc",borderRadius:10,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:800,color:"#0d1b4b"}}>{periodCounters.retiFisseTotale}</div><div style={{fontSize:11,color:"#64748b",marginTop:2}}>Linee fisse</div></div>
+                <div style={{background:"#f8fafc",borderRadius:10,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:800,color:"#0d1b4b"}}>{periodCounters.mobiliTotale}</div><div style={{fontSize:11,color:"#64748b",marginTop:2}}>Linee mobili</div></div>
+                <div style={{background:"#f8fafc",borderRadius:10,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:800,color:"#0d1b4b"}}>{periodLineeProfili}</div><div style={{fontSize:11,color:"#64748b",marginTop:2}}>Linee profili</div></div>
+                <div style={{background:"#f8fafc",borderRadius:10,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:800,color:"#0d1b4b"}}>{periodEnergia}</div><div style={{fontSize:11,color:"#64748b",marginTop:2}}>Energia (Luce+Gas)</div></div>
+              </div>
+              {(periodCounters.retiFisseTotale+periodCounters.mobiliTotale+periodLineeProfili+periodEnergia)>0&&(
+                <div style={{maxWidth:280,margin:"0 auto"}}>
+                  <ChartCanvas type="doughnut" data={portfolioMixData} height={220}/>
+                </div>
+              )}
+            </div>
+
+            {monthlyTrendMonths.length>0&&(
+              <div style={S.card}>
+                <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:14}}>📈 Andamento vendite mensili</div>
+                <ChartCanvas type="line" data={monthlyTrendData} height={220} options={{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}}/>
+              </div>
+            )}
+
+            {appointments.length>0&&(
+              <div style={S.card}>
+                <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:14}}>🍩 Stato appuntamenti</div>
+                <div style={{maxWidth:280,margin:"0 auto"}}>
+                  <ChartCanvas type="doughnut" data={apptStatusData} height={220}/>
+                </div>
+              </div>
+            )}
+
             {todayAppts.length>0&&(
-              <div style={{...S.card,borderLeft:"4px solid #8b5cf6",marginBottom:14}}>
+              <div style={{...S.card,borderLeft:"4px solid #8b5cf6"}}>
                 <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:10}}>🗓 Appuntamenti di oggi ({todayAppts.length})</div>
                 {todayAppts.map(a=>(
                   <div key={a.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f8fafc"}}>
@@ -1169,19 +1304,45 @@ function CrmApp({session,onLogout}){
                 ))}
               </div>
             )}
-            {(expiring.length>0||expired.length>0)&&(
+
+            {(expiring.length>0||expired.length>0||dueOpportunita.length>0||leadsToRecontact.length>0)&&(
               <div style={S.card}>
                 <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:12}}>🔔 Azioni urgenti</div>
                 {expired.map(c=>(
-                  <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,marginBottom:6,background:"#fef2f2",borderLeft:"3px solid #ef4444",cursor:"pointer"}} onClick={()=>{setSelId(c.id);setView("clienti");}}>
-                    <div><div style={{fontWeight:700,fontSize:13}}>{c.name}</div><div style={{fontSize:12,color:"#64748b"}}>Scaduto il {fmt(c.contractEnd)}</div></div>
+                  <div key={"exp-"+c.id} className="row-hover" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,marginBottom:6,background:"#fef2f2",borderLeft:"3px solid #ef4444",cursor:"pointer"}} onClick={()=>{setSelId(c.id);setView("clienti");}}>
+                    <div><div style={{fontWeight:700,fontSize:13}}>{c.name}</div><div style={{fontSize:12,color:"#64748b"}}>Contratto scaduto il {fmt(c.contractEnd)}</div></div>
                     <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#fef2f2",color:"#ef4444"}}>SCADUTO</span>
                   </div>
                 ))}
                 {expiring.map(c=>(
-                  <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,marginBottom:6,background:"#fffbeb",borderLeft:"3px solid #f59e0b",cursor:"pointer"}} onClick={()=>{setSelId(c.id);setView("clienti");}}>
-                    <div><div style={{fontWeight:700,fontSize:13}}>{c.name}</div><div style={{fontSize:12,color:"#64748b"}}>Scade il {fmt(c.contractEnd)} ({daysUntil(c.contractEnd)} giorni)</div></div>
+                  <div key={"exg-"+c.id} className="row-hover" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,marginBottom:6,background:"#fffbeb",borderLeft:"3px solid #f59e0b",cursor:"pointer"}} onClick={()=>{setSelId(c.id);setView("clienti");}}>
+                    <div><div style={{fontWeight:700,fontSize:13}}>{c.name}</div><div style={{fontSize:12,color:"#64748b"}}>Contratto in scadenza il {fmt(c.contractEnd)} ({daysUntil(c.contractEnd)} giorni)</div></div>
                     <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#fffbeb",color:"#f59e0b"}}>{daysUntil(c.contractEnd)}gg</span>
+                  </div>
+                ))}
+                {dueOpportunita.map(o=>(
+                  <div key={"opp-"+o.id} className="row-hover" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,marginBottom:6,background:"#eff6ff",borderLeft:"3px solid #3b82f6",cursor:o.clientId?"pointer":"default"}} onClick={()=>{if(o.clientId){setSelId(o.clientId);setView("clienti");}else{setView("opportunita");}}}>
+                    <div><div style={{fontWeight:700,fontSize:13}}>💡 {oppTargetLabel(o)} — {o.service}</div><div style={{fontSize:12,color:"#64748b"}}>{o.reason}{o.dueDate&&` · prevista per il ${fmt(o.dueDate)}`}</div></div>
+                    <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#eff6ff",color:"#3b82f6"}}>OPPORTUNITÀ</span>
+                  </div>
+                ))}
+                {leadsToRecontact.map(l=>(
+                  <div key={"lead-"+l.id} className="row-hover" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,marginBottom:6,background:"#f5f3ff",borderLeft:"3px solid #8b5cf6",cursor:"pointer"}} onClick={()=>setView("lead")}>
+                    <div><div style={{fontWeight:700,fontSize:13}}>🎯 {l.company}</div><div style={{fontSize:12,color:"#64748b"}}>Da ricontattare{l.callbackDate&&` · previsto per il ${fmt(l.callbackDate)}`}</div></div>
+                    <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#f5f3ff",color:"#8b5cf6"}}>LEAD</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {seniorClients.length>0&&(
+              <div style={S.card}>
+                <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:12}}>⭐ Clienti da valutare per upsell</div>
+                <p style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Clienti in fornitura da almeno 10 mesi — solo un suggerimento, nessuna opportunità viene creata automaticamente.</p>
+                {seniorClients.map(c=>(
+                  <div key={"sen-"+c.id} className="row-hover" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",borderRadius:8,marginBottom:6,background:"#f8fafc",cursor:"pointer"}} onClick={()=>{setSelId(c.id);setView("clienti");}}>
+                    <div style={{fontWeight:700,fontSize:13}}>{c.name}</div>
+                    <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#eff6ff",color:"#3b82f6"}}>🕐 {Math.floor((Date.now()-new Date(c.contractStart))/(86400000*30.44))} mesi</span>
                   </div>
                 ))}
               </div>
@@ -1197,6 +1358,7 @@ function CrmApp({session,onLogout}){
           <>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>Clienti ({filtered.length})</h2>
+              <button onClick={()=>{setEditId(null);setForm(EMPTY);setNewClientCart([]);setView("form");}} style={{...S.btn("sm"),...S.suc}}>➕ Nuovo cliente</button>
             </div>
             <div style={{...S.card,padding:"12px 14px"}}>
               <input style={{...S.inp,marginBottom:10}} placeholder="🔍 Cerca..." value={search} onChange={e=>setSearch(e.target.value)}/>
@@ -1215,7 +1377,7 @@ function CrmApp({session,onLogout}){
                     const d=daysUntil(c.contractEnd);
                     const cnt=getCounters(c.id);
                     return(
-                      <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>setSelId(c.id)}>
+                      <tr key={c.id} className="row-hover" style={{cursor:"pointer"}} onClick={()=>setSelId(c.id)}>
                         <td style={S.td}><div style={{fontWeight:700}}>{c.name}</div><div style={{fontSize:11,color:"#64748b"}}>{c.contact}</div></td>
                         <td style={S.td}><div style={{fontSize:11,color:"#64748b"}}>{fmt(c.contractStart)}</div><div style={{fontWeight:600,fontSize:12,color:d<0?"#ef4444":d<=30?"#f59e0b":"#0d1b4b"}}>{fmt(c.contractEnd)}</div>{d>=0&&d<=60&&<div style={{fontSize:10,color:"#f59e0b"}}>{d}gg</div>}{d<0&&<div style={{fontSize:10,color:"#ef4444"}}>Scaduto</div>}</td>
                         <td style={S.td}><strong>{cnt.retiFisseTotale}</strong></td><td style={S.td}><strong>{cnt.mobiliTotale}</strong></td>
@@ -1550,7 +1712,7 @@ function CrmApp({session,onLogout}){
               const d=daysUntil(c.contractEnd);
               const col=d<0?{bg:"#fef2f2",border:"#ef4444",txt:"#ef4444"}:d<=30?{bg:"#fef2f2",border:"#ef4444",txt:"#ef4444"}:d<=60?{bg:"#fffbeb",border:"#f59e0b",txt:"#f59e0b"}:{bg:"#f0f9ff",border:"#3b82f6",txt:"#3b82f6"};
               return(
-                <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:8,marginBottom:10,background:col.bg,borderLeft:`3px solid ${col.border}`,cursor:"pointer"}} onClick={()=>{setSelId(c.id);setView("clienti");}}>
+                <div key={c.id} className="row-hover" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:8,marginBottom:10,background:col.bg,borderLeft:`3px solid ${col.border}`,cursor:"pointer"}} onClick={()=>{setSelId(c.id);setView("clienti");}}>
                   <div><div style={{fontWeight:700,fontSize:14}}>{c.name}</div><div style={{fontSize:12,color:"#64748b",marginTop:2}}>Stipula: {fmt(c.contractStart)}</div></div>
                   <div style={{textAlign:"right"}}><div style={{fontWeight:700,fontSize:13,color:col.txt}}>{d<0?"Scaduto":`${d} giorni`}</div><div style={{fontSize:12,color:"#64748b"}}>{fmt(c.contractEnd)}</div></div>
                 </div>
@@ -1589,6 +1751,10 @@ function CrmApp({session,onLogout}){
                       </div>
                       <div style={{fontSize:12,color:"#64748b"}}>{a.phone}{a.contactName&&` · ${a.contactName}`}</div>
                       {a.notes&&<div style={{fontSize:11,color:"#94a3b8",marginTop:3,fontStyle:"italic"}}>"{a.notes}"</div>}
+                      <select value={a.status||''} onChange={e=>updateAppointmentStatus(a.id,e.target.value)} style={{marginTop:6,fontSize:11,fontWeight:700,padding:"3px 8px",borderRadius:20,border:"none",cursor:"pointer",background:APPT_STATUS_BG[a.status]||"#f1f5f9",color:APPT_STATUS_COLOR[a.status]||"#64748b"}}>
+                        <option value="">Non impostato</option>
+                        {Object.keys(APPT_STATUS_LABEL).map(k=><option key={k} value={k}>{APPT_STATUS_LABEL[k]}</option>)}
+                      </select>
                     </div>
                     <div style={{textAlign:"right",marginLeft:16,flexShrink:0}}>
                       <div style={{fontWeight:800,fontSize:14,color:"#8b5cf6"}}>{fmt(a.date)}</div>
@@ -1602,8 +1768,16 @@ function CrmApp({session,onLogout}){
               <div style={S.card}>
                 <div style={{fontSize:13,fontWeight:700,color:"#64748b",marginBottom:12}}>🗂 Passati ({pastAppts.length})</div>
                 {pastAppts.map(a=>(
-                  <div key={a.id} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid #f8fafc",opacity:.7}}>
-                    <div><div style={{fontWeight:700,fontSize:13}}>{a.company}</div><div style={{fontSize:11,color:"#64748b"}}>{a.phone}{a.contactName&&` · ${a.contactName}`}</div>{a.notes&&<div style={{fontSize:11,color:"#94a3b8",fontStyle:"italic"}}>"{a.notes}"</div>}</div>
+                  <div key={a.id} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid #f8fafc",opacity:.85}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:13}}>{a.company}</div>
+                      <div style={{fontSize:11,color:"#64748b"}}>{a.phone}{a.contactName&&` · ${a.contactName}`}</div>
+                      {a.notes&&<div style={{fontSize:11,color:"#94a3b8",fontStyle:"italic"}}>"{a.notes}"</div>}
+                      <select value={a.status||''} onChange={e=>updateAppointmentStatus(a.id,e.target.value)} style={{marginTop:6,fontSize:11,fontWeight:700,padding:"3px 8px",borderRadius:20,border:"none",cursor:"pointer",background:APPT_STATUS_BG[a.status]||"#f1f5f9",color:APPT_STATUS_COLOR[a.status]||"#64748b"}}>
+                        <option value="">Non impostato</option>
+                        {Object.keys(APPT_STATUS_LABEL).map(k=><option key={k} value={k}>{APPT_STATUS_LABEL[k]}</option>)}
+                      </select>
+                    </div>
                     <div style={{textAlign:"right",marginLeft:16}}><div style={{fontWeight:700,fontSize:13,color:"#64748b"}}>{fmt(a.date)}</div>{a.time&&<div style={{fontSize:11,color:"#94a3b8"}}>🕐 {a.time}</div>}</div>
                   </div>
                 ))}
@@ -1643,6 +1817,7 @@ function CrmApp({session,onLogout}){
             )}
           </>
         )}
+      </div>
       </div>
     </div>
   );

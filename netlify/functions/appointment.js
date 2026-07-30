@@ -20,7 +20,7 @@ exports.handler = async (event) => {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
       company, contactName: contactName||'', phone: phone||'',
       date, time: time||'', notes: notes||'', callSid: callSid||'',
-      createdAt: new Date().toISOString(), googleEventId: null,
+      createdAt: new Date().toISOString(), googleEventId: null, status: 'in_valuta',
     };
 
     // ── Save to Sheets ────────────────────────────────────────────

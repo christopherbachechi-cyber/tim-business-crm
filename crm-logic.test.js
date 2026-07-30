@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { computeServiceCounters, expandCartToRecords, CATALOG, isSeniorClient, isOpportunityDue } = require('./crm-logic');
+const { computeServiceCounters, expandCartToRecords, CATALOG, isSeniorClient, isOpportunityDue, localDateStr } = require('./crm-logic');
 
 test('la somma dei "di cui" può superare il totale senza errori', () => {
   const services = [
@@ -99,9 +99,9 @@ test('isSeniorClient: soglia personalizzabile in mesi', () => {
 });
 
 test('isOpportunityDue: true solo per date odierne o passate, mai per il futuro o valori nulli', () => {
-  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-  const today = new Date().toISOString().split('T')[0];
+  const yesterday = localDateStr(new Date(Date.now() - 86400000));
+  const tomorrow = localDateStr(new Date(Date.now() + 86400000));
+  const today = localDateStr();
   assert.equal(isOpportunityDue(yesterday), true);
   assert.equal(isOpportunityDue(today), true);
   assert.equal(isOpportunityDue(tomorrow), false);

@@ -81,6 +81,7 @@ const SCHEMAS = {
     ['callSid', 'string', 'Call SID'],
     ['createdAt', 'string', 'Creato il'],
     ['googleEventId', 'nullable', 'Google Event ID'],
+    ['status', 'string', 'Stato'],
   ],
   clients: [
     ['id', 'raw', 'ID'],
