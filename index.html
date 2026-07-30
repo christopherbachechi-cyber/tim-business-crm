@@ -130,6 +130,8 @@ const S={
   yn:(v)=>({fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:v?"#f0fdf4":"#f8fafc",color:v?"#22c55e":"#94a3b8"}),
   badge:(r)=>({fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:RISK[r]?.bg||"#f1f5f9",color:RISK[r]?.color||"#64748b"}),
   toast:(t)=>({position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",background:t==="err"?"#ef4444":"#22c55e",color:"#fff",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,zIndex:999,boxShadow:"0 4px 12px rgba(0,0,0,.2)",whiteSpace:"nowrap"}),
+  tabBar:{display:"flex",gap:4,borderBottom:"2px solid #f1f5f9",marginBottom:16,overflowX:"auto"},
+  tab:(a)=>({padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer",border:"none",background:"none",color:a?"#3b82f6":"#64748b",borderBottom:a?"2px solid #3b82f6":"2px solid transparent",marginBottom:-2,whiteSpace:"nowrap"}),
 };
 
 /* ── LOGIN SCREEN ─────────────────────────────── */
@@ -814,6 +816,8 @@ function CrmApp({session,onLogout}){
   const [dashboardMonth,setDashboardMonth]=useState(todayStr().slice(0,7));
   const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
   const [selId,setSelId]=useState(null);
+  const [clientTab,setClientTab]=useState("panoramica");
+  useEffect(()=>{setClientTab("panoramica")},[selId]);
   const [editId,setEditId]=useState(null);
   const [form,setForm]=useState(EMPTY);
   const [newClientCart,setNewClientCart]=useState([]);
@@ -1441,126 +1445,144 @@ function CrmApp({session,onLogout}){
               </div>
             </div>
 
-            <div style={S.card}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b"}}>📶 Riepilogo Servizi</div>
-                <button onClick={()=>setShowCartModal(true)} style={{...S.btn("sm"),...S.suc}}>➕ Aggiungi vendita</button>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Reti fisse — totale {cnt.retiFisseTotale}</div>
-                  <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>Voce+Internet: <strong>{cnt.voceInternet}</strong> · Solo Internet: <strong>{cnt.soloInternet}</strong> · Backup: <strong>{cnt.backup}</strong> · Casa: <strong>{cnt.casa}</strong></div>
-                </div>
-                <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Mobile — totale {cnt.mobiliTotale}</div>
-                  <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>Voce+Dati: <strong>{cnt.voceDati}</strong> · Solo Dati: <strong>{cnt.soloDati}</strong> · Numero Sostituibile: <strong>{cnt.numeroVariabile}</strong></div>
-                </div>
-                <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Reti fisse profili</div>
-                  <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>TCE: <strong>{cnt.tce}</strong> · Trunk: <strong>{cnt.trunk}</strong> · TIM Comunica: <strong>{cnt.timComunica}</strong></div>
-                </div>
-                <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Energia</div>
-                  <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>POD: <strong>{cnt.pod}</strong> · PDR: <strong>{cnt.pdr}</strong></div>
-                </div>
-              </div>
-            </div>
-
-            <div style={S.card}>
-              <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>Servizi attivi ({svc.length})</div>
-              {servicesLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:20}}>Caricamento...</div>}
-              {!servicesLoading&&svc.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:20,fontSize:13}}>Nessun servizio ancora. Usa "➕ Aggiungi vendita".</div>}
-              {!servicesLoading&&svc.length>0&&(
-                <div style={{overflowX:"auto"}}>
-                <table style={S.tbl}>
-                  <thead><tr>{["Categoria","Profilo","Tipologia","Numero","Prezzo","Stato","Note",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {svc.map(s=>(
-                      <tr key={s.id}>
-                        <td style={S.td}>{CATEGORY_LABEL[s.category]}</td>
-                        <td style={S.td}><strong>{s.profile}</strong></td>
-                        <td style={{...S.td,fontSize:12,color:"#475569"}}>{flagsList(s)}</td>
-                        <td style={S.td}>{s.phone||"—"}</td>
-                        <td style={S.td}>{s.price?`€ ${s.price}`:"—"}</td>
-                        <td style={S.td}>{SERVICE_STATUS_LABEL[s.status]||s.status}</td>
-                        <td style={{...S.td,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#94a3b8"}}>{s.notes||"—"}</td>
-                        <td style={{...S.td,whiteSpace:"nowrap"}}>
-                          <button onClick={()=>setDocsService(s)} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0",marginRight:8}}>📎</button>
-                          <button onClick={()=>setEditService(s)} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
-                          <button onClick={()=>deleteService(s.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                </div>
-              )}
-            </div>
-
-            <div style={S.card}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b"}}>👤 Referenti ({refs.length})</div>
-                <button onClick={()=>{setEditReferente(null);setShowReferenteModal(true);}} style={{...S.btn("sm"),...S.suc}}>➕ Aggiungi referente</button>
-              </div>
-              {referentiLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:20}}>Caricamento...</div>}
-              {!referentiLoading&&refs.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:20,fontSize:13}}>Nessun referente ancora.</div>}
-              {refs.map(r=>(
-                <div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #f8fafc"}}>
-                  <div>
-                    <div style={{fontWeight:700,fontSize:13}}>{r.name}{r.role&&<span style={{fontWeight:400,color:"#64748b"}}> · {r.role}</span>}</div>
-                    <div style={{fontSize:12,color:"#64748b"}}>{[r.phone,r.email].filter(Boolean).join(" · ")||"—"}</div>
-                  </div>
-                  <div>
-                    <button onClick={()=>{setEditReferente(r);setShowReferenteModal(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
-                    <button onClick={()=>deleteReferente(r.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
-                  </div>
-                </div>
+            <div style={S.tabBar}>
+              {[["panoramica","Panoramica"],["servizi",`Servizi (${svc.length})`],["referenti",`Referenti (${refs.length})`],["opportunita",`Opportunità (${clientOpps.length})`],["timeline","Timeline"],["documenti","Documenti"]].map(([k,l])=>(
+                <button key={k} style={S.tab(clientTab===k)} onClick={()=>setClientTab(k)}>{l}</button>
               ))}
             </div>
 
-            <div style={S.card}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b"}}>💡 Opportunità ({clientOpps.length})</div>
-                <button onClick={()=>{setOppPrefill({clientId:selId});setEditOpp(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.suc}}>➕ Nuova opportunità</button>
+            {clientTab==="panoramica"&&(
+              <div style={S.card}>
+                <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>📶 Riepilogo Servizi</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Reti fisse — totale {cnt.retiFisseTotale}</div>
+                    <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>Voce+Internet: <strong>{cnt.voceInternet}</strong> · Solo Internet: <strong>{cnt.soloInternet}</strong> · Backup: <strong>{cnt.backup}</strong> · Casa: <strong>{cnt.casa}</strong></div>
+                  </div>
+                  <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Mobile — totale {cnt.mobiliTotale}</div>
+                    <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>Voce+Dati: <strong>{cnt.voceDati}</strong> · Solo Dati: <strong>{cnt.soloDati}</strong> · Numero Sostituibile: <strong>{cnt.numeroVariabile}</strong></div>
+                  </div>
+                  <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Reti fisse profili</div>
+                    <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>TCE: <strong>{cnt.tce}</strong> · Trunk: <strong>{cnt.trunk}</strong> · TIM Comunica: <strong>{cnt.timComunica}</strong></div>
+                  </div>
+                  <div style={{background:"#f8fafc",borderRadius:8,padding:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Energia</div>
+                    <div style={{fontSize:12,color:"#475569",lineHeight:1.8}}>POD: <strong>{cnt.pod}</strong> · PDR: <strong>{cnt.pdr}</strong></div>
+                  </div>
+                </div>
               </div>
-              {clientOpps.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:16,fontSize:13}}>Nessuna opportunità per questo cliente.</div>}
-              {clientOpps.map(o=>{
-                const due=isOpportunityDue(o.dueDate)&&o.status==='aperta';
-                return(
-                  <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 8px",borderRadius:8,marginBottom:6,background:due?"#fef2f2":"#f8fafc"}}>
+            )}
+
+            {clientTab==="servizi"&&(
+              <div style={S.card}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b"}}>Servizi attivi ({svc.length})</div>
+                  <button onClick={()=>setShowCartModal(true)} style={{...S.btn("sm"),...S.suc}}>➕ Aggiungi vendita</button>
+                </div>
+                {servicesLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:20}}>Caricamento...</div>}
+                {!servicesLoading&&svc.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:20,fontSize:13}}>Nessun servizio ancora. Usa "➕ Aggiungi vendita".</div>}
+                {!servicesLoading&&svc.length>0&&(
+                  <div style={{overflowX:"auto"}}>
+                  <table style={S.tbl}>
+                    <thead><tr>{["Categoria","Profilo","Tipologia","Numero","Prezzo","Stato","Note",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {svc.map(s=>(
+                        <tr key={s.id}>
+                          <td style={S.td}>{CATEGORY_LABEL[s.category]}</td>
+                          <td style={S.td}><strong>{s.profile}</strong></td>
+                          <td style={{...S.td,fontSize:12,color:"#475569"}}>{flagsList(s)}</td>
+                          <td style={S.td}>{s.phone||"—"}</td>
+                          <td style={S.td}>{s.price?`€ ${s.price}`:"—"}</td>
+                          <td style={S.td}>{SERVICE_STATUS_LABEL[s.status]||s.status}</td>
+                          <td style={{...S.td,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"#94a3b8"}}>{s.notes||"—"}</td>
+                          <td style={{...S.td,whiteSpace:"nowrap"}}>
+                            <button onClick={()=>setDocsService(s)} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0",marginRight:8}}>📎</button>
+                            <button onClick={()=>setEditService(s)} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
+                            <button onClick={()=>deleteService(s.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {clientTab==="referenti"&&(
+              <div style={S.card}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b"}}>👤 Referenti ({refs.length})</div>
+                  <button onClick={()=>{setEditReferente(null);setShowReferenteModal(true);}} style={{...S.btn("sm"),...S.suc}}>➕ Aggiungi referente</button>
+                </div>
+                {referentiLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:20}}>Caricamento...</div>}
+                {!referentiLoading&&refs.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:20,fontSize:13}}>Nessun referente ancora.</div>}
+                {refs.map(r=>(
+                  <div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #f8fafc"}}>
                     <div>
-                      <div style={{fontWeight:700,fontSize:13}}>{o.service}{due&&<span style={{marginLeft:6,fontSize:10,fontWeight:700,color:"#ef4444"}}>SCADUTA</span>}</div>
-                      <div style={{fontSize:12,color:"#64748b"}}>{o.reason}{o.dueDate&&` · ${fmt(o.dueDate)}`}</div>
+                      <div style={{fontWeight:700,fontSize:13}}>{r.name}{r.role&&<span style={{fontWeight:400,color:"#64748b"}}> · {r.role}</span>}</div>
+                      <div style={{fontSize:12,color:"#64748b"}}>{[r.phone,r.email].filter(Boolean).join(" · ")||"—"}</div>
                     </div>
-                    <div style={{whiteSpace:"nowrap"}}>
-                      <button onClick={()=>{setEditOpp(o);setOppPrefill(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
-                      <button onClick={()=>deleteOpp(o.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
+                    <div>
+                      <button onClick={()=>{setEditReferente(r);setShowReferenteModal(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
+                      <button onClick={()=>deleteReferente(r.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-
-            <div style={S.card}>
-              <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>🕓 Timeline</div>
-              <div style={{display:"flex",gap:8,marginBottom:14}}>
-                <input style={{...S.inp,flex:1}} placeholder="Aggiungi una nota commerciale..." value={noteText} onChange={e=>setNoteText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')addNote();}}/>
-                <button onClick={addNote} style={{...S.btn("sm"),...S.suc}}>💾 Nota</button>
+                ))}
               </div>
-              {timelineLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:16}}>Caricamento...</div>}
-              {!timelineLoading&&clientTimeline.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:16,fontSize:13}}>Nessuna voce ancora.</div>}
-              {clientTimeline.map(t=>(
-                <div key={t.id} style={{padding:"8px 0",borderBottom:"1px solid #f8fafc"}}>
-                  <div style={{fontSize:12,color:"#475569"}}>{t.type==='nota'?'📝':'📶'} {t.text}</div>
-                  <div style={{fontSize:10,color:"#94a3b8",marginTop:2}}>{fmt(t.date)} {fmtTime(t.date)} · {t.user}</div>
-                </div>
-              ))}
-            </div>
+            )}
 
-            <div style={S.card}>
-              <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>📎 Documenti e allegati</div>
-              <DocumentsPanel clientId={selId}/>
-            </div>
+            {clientTab==="opportunita"&&(
+              <div style={S.card}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b"}}>💡 Opportunità ({clientOpps.length})</div>
+                  <button onClick={()=>{setOppPrefill({clientId:selId});setEditOpp(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.suc}}>➕ Nuova opportunità</button>
+                </div>
+                {clientOpps.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:16,fontSize:13}}>Nessuna opportunità per questo cliente.</div>}
+                {clientOpps.map(o=>{
+                  const due=isOpportunityDue(o.dueDate)&&o.status==='aperta';
+                  return(
+                    <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 8px",borderRadius:8,marginBottom:6,background:due?"#fef2f2":"#f8fafc"}}>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:13}}>{o.service}{due&&<span style={{marginLeft:6,fontSize:10,fontWeight:700,color:"#ef4444"}}>SCADUTA</span>}</div>
+                        <div style={{fontSize:12,color:"#64748b"}}>{o.reason}{o.dueDate&&` · ${fmt(o.dueDate)}`}</div>
+                      </div>
+                      <div style={{whiteSpace:"nowrap"}}>
+                        <button onClick={()=>{setEditOpp(o);setOppPrefill(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
+                        <button onClick={()=>deleteOpp(o.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {clientTab==="timeline"&&(
+              <div style={S.card}>
+                <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>🕓 Timeline</div>
+                <div style={{display:"flex",gap:8,marginBottom:14}}>
+                  <input style={{...S.inp,flex:1}} placeholder="Aggiungi una nota commerciale..." value={noteText} onChange={e=>setNoteText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')addNote();}}/>
+                  <button onClick={addNote} style={{...S.btn("sm"),...S.suc}}>💾 Nota</button>
+                </div>
+                {timelineLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:16}}>Caricamento...</div>}
+                {!timelineLoading&&clientTimeline.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:16,fontSize:13}}>Nessuna voce ancora.</div>}
+                {clientTimeline.map(t=>(
+                  <div key={t.id} style={{padding:"8px 0",borderBottom:"1px solid #f8fafc"}}>
+                    <div style={{fontSize:12,color:"#475569"}}>{t.type==='nota'?'📝':'📶'} {t.text}</div>
+                    <div style={{fontSize:10,color:"#94a3b8",marginTop:2}}>{fmt(t.date)} {fmtTime(t.date)} · {t.user}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {clientTab==="documenti"&&(
+              <div style={S.card}>
+                <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>📎 Documenti e allegati</div>
+                <DocumentsPanel clientId={selId}/>
+              </div>
+            )}
           </>
           );
         })()}
