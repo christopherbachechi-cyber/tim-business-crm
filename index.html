@@ -978,6 +978,9 @@ function CrmApp({session,onLogout}){
   const [calendarDate,setCalendarDate]=useState(todayStr());
   const [apptDateFrom,setApptDateFrom]=useState("");
   const [apptDateTo,setApptDateTo]=useState("");
+  const [apptListSearch,setApptListSearch]=useState("");
+  const [apptListFrom,setApptListFrom]=useState("");
+  const [apptListTo,setApptListTo]=useState("");
   useEffect(()=>{
     if(view==="appuntamenti"){
       setApptViewMode("calendario");
@@ -985,6 +988,9 @@ function CrmApp({session,onLogout}){
       setCalendarDate(todayStr());
       setApptDateFrom("");
       setApptDateTo("");
+      setApptListSearch("");
+      setApptListFrom("");
+      setApptListTo("");
     }
   },[view]);
   const [prospects,setProspects]=useState([]);
@@ -1328,6 +1334,25 @@ function CrmApp({session,onLogout}){
   const todayAppts=appointments.filter(a=>a.date===todayStr());
   const upcomingAppts=appointments.filter(a=>a.date>=todayStr()).sort((a,b)=>a.date.localeCompare(b.date));
   const pastAppts=appointments.filter(a=>a.date<todayStr()).sort((a,b)=>b.date.localeCompare(a.date));
+  const apptListFilterActive=!!(apptListSearch.trim()||apptListFrom||apptListTo);
+  const matchesApptListFilter=(a)=>{
+    const searchOk=!apptListSearch.trim()||a.company.toLowerCase().includes(apptListSearch.trim().toLowerCase());
+    const fromOk=!apptListFrom||a.date>=apptListFrom;
+    const toOk=!apptListTo||a.date<=apptListTo;
+    return searchOk&&fromOk&&toOk;
+  };
+  const upcomingListFiltered=upcomingAppts.filter(matchesApptListFilter);
+  const pastListFiltered=pastAppts.filter(matchesApptListFilter);
+  const exportAppointments=()=>{
+    const combined=[...upcomingListFiltered,...pastListFiltered].sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||''));
+    const ws=XLSX.utils.json_to_sheet(combined.map(a=>({
+      Azienda:a.company,Referente:a.contactName,Telefono:a.phone,
+      Data:a.date,Orario:a.time||'',Stato:APPT_STATUS_LABEL[a.status]||'',Note:a.notes,
+    })));
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Appuntamenti');
+    XLSX.writeFile(wb,`appuntamenti_${todayStr()}.xlsx`);
+  };
 
   const TABS=[{k:"dashboard",l:"📊 Dashboard"},{k:"clienti",l:"👥 Clienti"},{k:"prospect",l:"📇 Anagrafica Call Center"},{k:"lead",l:"🎯 Lead"},{k:"opportunita",l:"💡 Opportunità"},{k:"scadenze",l:"📅 Scadenze"},{k:"appuntamenti",l:"🗓 Appuntamenti"}];
 
@@ -1989,6 +2014,17 @@ function CrmApp({session,onLogout}){
                 onStatusChange={updateAppointmentStatus}
               />
             )}
+            {apptViewMode==="lista"&&(
+              <div style={{...S.card,padding:"12px 14px",display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+                <input style={{...S.inp,flex:1,minWidth:180}} placeholder="🔍 Cerca ragione sociale..." value={apptListSearch} onChange={e=>setApptListSearch(e.target.value)}/>
+                <span style={{fontSize:11,fontWeight:700,color:"#64748b"}}>Da</span>
+                <input type="date" style={{...S.inp,width:"auto"}} value={apptListFrom} onChange={e=>setApptListFrom(e.target.value)}/>
+                <span style={{fontSize:11,fontWeight:700,color:"#64748b"}}>a</span>
+                <input type="date" style={{...S.inp,width:"auto"}} value={apptListTo} onChange={e=>setApptListTo(e.target.value)}/>
+                <button onClick={exportAppointments} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0"}}>⬇️ Esporta Excel</button>
+                {apptListFilterActive&&<button onClick={()=>{setApptListSearch("");setApptListFrom("");setApptListTo("");}} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0"}}>✕ Cancella</button>}
+              </div>
+            )}
             {!apptLoading&&apptViewMode==="lista"&&appointments.length===0&&(
               <div style={{...S.card,textAlign:"center",color:"#94a3b8",padding:40}}>
                 <div style={{fontSize:36,marginBottom:10}}>🗓</div>
@@ -1996,16 +2032,19 @@ function CrmApp({session,onLogout}){
                 <div style={{fontSize:12}}>Gli appuntamenti fissati dal Call Center appariranno qui automaticamente.</div>
               </div>
             )}
-            {!apptLoading&&apptViewMode==="lista"&&upcomingAppts.length>0&&(
+            {!apptLoading&&apptViewMode==="lista"&&appointments.length>0&&apptListFilterActive&&upcomingListFiltered.length===0&&pastListFiltered.length===0&&(
+              <div style={{...S.card,textAlign:"center",color:"#94a3b8",padding:32,fontSize:13}}>Nessun appuntamento corrisponde ai filtri.</div>
+            )}
+            {!apptLoading&&apptViewMode==="lista"&&upcomingListFiltered.length>0&&(
               <div style={S.card}>
-                <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:12}}>📅 Prossimi ({upcomingAppts.length})</div>
-                {upcomingAppts.map(a=><ApptRow key={a.id} a={a} onStatusChange={updateAppointmentStatus}/>)}
+                <div style={{fontSize:13,fontWeight:700,color:"#0d1b4b",marginBottom:12}}>📅 Prossimi ({upcomingListFiltered.length})</div>
+                {upcomingListFiltered.map(a=><ApptRow key={a.id} a={a} onStatusChange={updateAppointmentStatus}/>)}
               </div>
             )}
-            {!apptLoading&&apptViewMode==="lista"&&pastAppts.length>0&&(
+            {!apptLoading&&apptViewMode==="lista"&&pastListFiltered.length>0&&(
               <div style={S.card}>
-                <div style={{fontSize:13,fontWeight:700,color:"#64748b",marginBottom:12}}>🗂 Passati ({pastAppts.length})</div>
-                {pastAppts.map(a=><ApptRow key={a.id} a={a} dimmed onStatusChange={updateAppointmentStatus}/>)}
+                <div style={{fontSize:13,fontWeight:700,color:"#64748b",marginBottom:12}}>🗂 Passati ({pastListFiltered.length})</div>
+                {pastListFiltered.map(a=><ApptRow key={a.id} a={a} dimmed onStatusChange={updateAppointmentStatus}/>)}
               </div>
             )}
           </>
