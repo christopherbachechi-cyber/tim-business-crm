@@ -156,6 +156,16 @@ const SCHEMAS = {
     ['notes', 'string', 'Note'],
     ['createdAt', 'string', 'Creato il'],
   ],
+  offerte: [
+    ['id', 'raw', 'ID'],
+    ['clientId', 'raw', 'ID Cliente'],
+    ['status', 'string', 'Stato'],
+    ['cart', 'string', 'Carrello (JSON)'],
+    ['notes', 'string', 'Note'],
+    ['createdAt', 'string', 'Creato il'],
+    ['sentAt', 'nullable', 'Inviata il'],
+    ['decidedAt', 'nullable', 'Decisa il'],
+  ],
 };
 
 function isListType(tabName) {

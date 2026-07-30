@@ -102,6 +102,11 @@ const OPP_STATUS_LABEL={aperta:'Aperta',vinta:'Vinta',persa:'Persa'};
 const OPP_STATUS_COLOR={aperta:'#3b82f6',vinta:'#22c55e',persa:'#ef4444'};
 const OPP_STATUS_BG={aperta:'#eff6ff',vinta:'#f0fdf4',persa:'#fef2f2'};
 
+/* ── OFFERTE (preventivo: bozza→inviata→accettata/rifiutata; genera Servizi solo se accettata) ── */
+const OFFER_STATUS_LABEL={bozza:'Bozza',inviata:'Inviata',accettata:'Accettata',rifiutata:'Rifiutata'};
+const OFFER_STATUS_COLOR={bozza:'#64748b',inviata:'#3b82f6',accettata:'#22c55e',rifiutata:'#ef4444'};
+const OFFER_STATUS_BG={bozza:'#f1f5f9',inviata:'#eff6ff',accettata:'#f0fdf4',rifiutata:'#fef2f2'};
+
 /* ── STATO APPUNTAMENTO (modificabile dopo la creazione) ── */
 const APPT_STATUS_LABEL={in_valuta:'In valuta',positivo:'Positivo',negativo:'Negativo',moroso:'Moroso',non_valido:'Non valido'};
 const APPT_STATUS_COLOR={in_valuta:'#3b82f6',positivo:'#22c55e',negativo:'#ef4444',moroso:'#f59e0b',non_valido:'#64748b'};
@@ -695,6 +700,45 @@ function OpportunitaModal({initial,prefill,clients,leads,onClose,onSaved}){
   );
 }
 
+/* ── OFFERTA MODAL (preventivo — carrello modificabile solo mentre è in bozza) ── */
+function OffertaModal({initial,clients,onClose,onSaved}){
+  const [clientId,setClientId]=useState(initial?.clientId||(clients[0]?.id??''));
+  const [rows,setRows]=useState(initial?.cart?JSON.parse(initial.cart):[emptyCartRow()]);
+  const [notes,setNotes]=useState(initial?.notes||'');
+  const [err,setErr]=useState('');
+
+  const save=()=>{
+    if(!clientId)return setErr('Seleziona un cliente');
+    if(rows.length===0)return setErr('Aggiungi almeno una riga');
+    onSaved({id:initial?.id,clientId,cart:JSON.stringify(rows),notes:notes.trim()});
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:640,maxHeight:'85vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>{initial?'✏️ Modifica offerta':'💰 Nuova offerta'}</h2>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={S.lbl}>Cliente *</label>
+          <select style={{...S.inp,cursor:initial?'default':'pointer'}} value={clientId} disabled={!!initial} onChange={e=>setClientId(e.target.value)}>
+            {clients.length===0&&<option value="">Nessun cliente</option>}
+            {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <CartRowsEditor rows={rows} setRows={setRows}/>
+        <div style={{marginTop:8}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:60,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Condizioni, validità offerta..."/></div>
+        {err&&<p style={{color:'#ef4444',fontSize:12,marginTop:10,marginBottom:10}}>{err}</p>}
+        <div style={{display:'flex',gap:10,marginTop:16}}>
+          <button onClick={save} style={{...S.btn('lg'),...S.suc,flex:1}}>💾 Salva offerta</button>
+          <button onClick={onClose} style={{...S.btn('lg'),...S.gho}}>Annulla</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── DOCUMENTI E ALLEGATI (Google Drive) — condiviso tra scheda cliente e singola linea di servizio ── */
 const MAX_UPLOAD_BYTES=4*1024*1024;
 function formatBytes(n){
@@ -1019,6 +1063,10 @@ function CrmApp({session,onLogout}){
   const [oppModalOpen,setOppModalOpen]=useState(false);
   const [editOpp,setEditOpp]=useState(null);
   const [oppPrefill,setOppPrefill]=useState(null);
+  const [offerte,setOfferte]=useState([]);
+  const [offerteLoading,setOfferteLoading]=useState(true);
+  const [offertaModalOpen,setOffertaModalOpen]=useState(false);
+  const [editOfferta,setEditOfferta]=useState(null);
   const [timeline,setTimeline]=useState([]);
   const [timelineLoading,setTimelineLoading]=useState(true);
   const [noteText,setNoteText]=useState('');
@@ -1199,6 +1247,56 @@ function CrmApp({session,onLogout}){
     return '—';
   };
 
+  /* ── Offerte (preventivo: bozza→inviata→accettata/rifiutata; genera Servizi solo se accettata) ── */
+  const loadOfferte=useCallback(async()=>{
+    setOfferteLoading(true);
+    try{const r=await fetch('/api/data?type=offerte');const d=await r.json();setOfferte(Array.isArray(d)?d:[]);}catch{setOfferte([]);}
+    setOfferteLoading(false);
+  },[]);
+  useEffect(()=>{loadOfferte();},[loadOfferte]);
+
+  const saveOfferte=async(list)=>{
+    setOfferte(list);
+    await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'offerte',data:list})});
+  };
+  const handleOffertaSaved=(o)=>{
+    if(editOfferta){
+      saveOfferte(offerte.map(x=>x.id===o.id?{...x,cart:o.cart,notes:o.notes}:x));
+      notify('Offerta aggiornata ✓');
+    }else{
+      saveOfferte([...offerte,{id:uid(),clientId:o.clientId,status:'bozza',cart:o.cart,notes:o.notes,createdAt:new Date().toISOString(),sentAt:null,decidedAt:null}]);
+      notify('Offerta creata ✓');
+    }
+    setOffertaModalOpen(false);setEditOfferta(null);
+  };
+  const deleteOfferta=(id)=>{
+    if(!window.confirm('Eliminare questa offerta?'))return;
+    saveOfferte(offerte.filter(o=>o.id!==id));
+    notify('Offerta eliminata');
+  };
+  const inviaOfferta=(id)=>{
+    saveOfferte(offerte.map(o=>o.id===id?{...o,status:'inviata',sentAt:new Date().toISOString()}:o));
+    notify('Offerta inviata ✓');
+  };
+  const rifiutaOfferta=(id)=>{
+    if(!window.confirm('Segnare questa offerta come rifiutata?'))return;
+    saveOfferte(offerte.map(o=>o.id===id?{...o,status:'rifiutata',decidedAt:new Date().toISOString()}:o));
+    notify('Offerta segnata come rifiutata');
+  };
+  const accettaOfferta=async(o)=>{
+    if(!window.confirm('Accettare questa offerta? Verranno generati i servizi corrispondenti sulla scheda cliente.'))return;
+    const cart=JSON.parse(o.cart||'[]');
+    const newRecords=expandCartToRecords(cart,o.clientId);
+    await saveServices([...services,...newRecords]);
+    const summary=newRecords.map(r=>`${r.profile}${describeServiceFlags(r)}`).join(', ');
+    addTimelineEntry(o.clientId,'servizio',`Offerta accettata: aggiunti ${newRecords.length} servizi (${summary})`);
+    await saveOfferte(offerte.map(x=>x.id===o.id?{...x,status:'accettata',decidedAt:new Date().toISOString()}:x));
+    notify(`Offerta accettata, ${newRecords.length} servizi generati ✓`);
+  };
+  const getOffertaTotal=(o)=>{
+    try{return JSON.parse(o.cart||'[]').reduce((sum,r)=>sum+(r.price?Number(r.price)*Math.max(1,parseInt(r.quantity||1,10)):0),0);}catch{return 0;}
+  };
+
   const loadAppointments=useCallback(async()=>{
     setApptLoading(true);
     try{const r=await fetch('/api/data?type=appointments');const d=await r.json();setAppointments(Array.isArray(d)?d:[]);}catch{setAppointments([]);}
@@ -1282,6 +1380,7 @@ function CrmApp({session,onLogout}){
     saveReferenti(referenti.filter(r=>r.clientId!==id));
     saveTimeline(timeline.filter(t=>t.clientId!==id));
     saveOpportunita(opportunita.filter(o=>o.clientId!==id));
+    saveOfferte(offerte.filter(o=>o.clientId!==id));
     setSelId(null);notify("Cliente eliminato");
   };
   const startEdit=(c)=>{setEditId(c.id);setForm({...c});setView("form");};
@@ -1354,7 +1453,7 @@ function CrmApp({session,onLogout}){
     XLSX.writeFile(wb,`appuntamenti_${todayStr()}.xlsx`);
   };
 
-  const TABS=[{k:"dashboard",l:"📊 Dashboard"},{k:"clienti",l:"👥 Clienti"},{k:"prospect",l:"📇 Anagrafica Call Center"},{k:"lead",l:"🎯 Lead"},{k:"opportunita",l:"💡 Opportunità"},{k:"scadenze",l:"📅 Scadenze"},{k:"appuntamenti",l:"🗓 Appuntamenti"}];
+  const TABS=[{k:"dashboard",l:"📊 Dashboard"},{k:"clienti",l:"👥 Clienti"},{k:"prospect",l:"📇 Anagrafica Call Center"},{k:"lead",l:"🎯 Lead"},{k:"opportunita",l:"💡 Opportunità"},{k:"offerte",l:"💰 Offerte"},{k:"scadenze",l:"📅 Scadenze"},{k:"appuntamenti",l:"🗓 Appuntamenti"}];
 
   const FSel=({label,fkey,opts})=>(
     <div>
@@ -1376,6 +1475,7 @@ function CrmApp({session,onLogout}){
       {prospectModalOpen&&<ProspectModal initial={editProspect} onClose={()=>{setProspectModalOpen(false);setEditProspect(null);}} onSaved={handleProspectSaved}/>}
       {leadModalOpen&&<LeadModal initial={editLead} onClose={()=>{setLeadModalOpen(false);setEditLead(null);}} onSaved={handleLeadSaved}/>}
       {oppModalOpen&&<OpportunitaModal initial={editOpp} prefill={oppPrefill} clients={clients} leads={leads} onClose={()=>{setOppModalOpen(false);setEditOpp(null);setOppPrefill(null);}} onSaved={handleOppSaved}/>}
+      {offertaModalOpen&&<OffertaModal initial={editOfferta} clients={clients} onClose={()=>{setOffertaModalOpen(false);setEditOfferta(null);}} onSaved={handleOffertaSaved}/>}
       <aside className="sidebar">
         <div className="sidebar-top-row">
           <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1913,6 +2013,60 @@ function CrmApp({session,onLogout}){
                           <td style={{...S.td,whiteSpace:"nowrap"}}>
                             <button onClick={()=>{setEditOpp(o);setOppPrefill(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
                             <button onClick={()=>deleteOpp(o.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {view==="offerte"&&(
+          <>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+              <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>💰 Offerte ({offerte.length})</h2>
+              <button onClick={()=>{setEditOfferta(null);setOffertaModalOpen(true);}} style={{...S.btn("sm"),...S.suc}}>➕ Nuova Offerta</button>
+            </div>
+            {offerteLoading&&<div style={{textAlign:"center",color:"#94a3b8",padding:32}}>Caricamento...</div>}
+            {!offerteLoading&&offerte.length===0&&(
+              <div style={{...S.card,textAlign:"center",color:"#94a3b8",padding:40}}>
+                <div style={{fontSize:36,marginBottom:10}}>💰</div>
+                <div style={{fontWeight:700,marginBottom:6}}>Nessuna offerta ancora</div>
+                <div style={{fontSize:12}}>I servizi vengono generati sulla scheda cliente solo quando un'offerta viene accettata.</div>
+              </div>
+            )}
+            {!offerteLoading&&offerte.length>0&&(
+              <div style={S.card}>
+                <div style={{overflowX:"auto"}}>
+                <table style={S.tbl}>
+                  <thead><tr>{["Cliente","Righe","Totale","Stato","Creato il",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {[...offerte].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(o=>{
+                      const client=clients.find(c=>c.id===o.clientId);
+                      const cart=(()=>{try{return JSON.parse(o.cart||'[]');}catch{return [];}})();
+                      const total=getOffertaTotal(o);
+                      return(
+                        <tr key={o.id}>
+                          <td onClick={()=>{setSelId(o.clientId);setView("clienti");}} style={{...S.td,cursor:"pointer",fontWeight:700}}>{client?client.name:'Cliente eliminato'}</td>
+                          <td style={S.td}>{cart.length} {cart.length===1?'riga':'righe'}</td>
+                          <td style={S.td}>{total>0?`€ ${total.toFixed(2)}`:"—"}</td>
+                          <td style={S.td}><span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:OFFER_STATUS_BG[o.status]||"#f1f5f9",color:OFFER_STATUS_COLOR[o.status]||"#64748b"}}>{OFFER_STATUS_LABEL[o.status]||o.status}</span></td>
+                          <td style={S.td}>{fmt(o.createdAt)}</td>
+                          <td style={{...S.td,whiteSpace:"nowrap"}}>
+                            {o.status==='bozza'&&<>
+                              <button onClick={()=>{setEditOfferta(o);setOffertaModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
+                              <button onClick={()=>inviaOfferta(o.id)} style={{...S.btn("sm"),...S.suc,marginRight:8}}>📤 Invia</button>
+                              <button onClick={()=>rifiutaOfferta(o.id)} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0",marginRight:8}}>❌ Rifiuta</button>
+                            </>}
+                            {o.status==='inviata'&&<>
+                              <button onClick={()=>accettaOfferta(o)} style={{...S.btn("sm"),...S.suc,marginRight:8}}>✅ Accetta</button>
+                              <button onClick={()=>rifiutaOfferta(o.id)} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0",marginRight:8}}>❌ Rifiuta</button>
+                            </>}
+                            <button onClick={()=>deleteOfferta(o.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
                           </td>
                         </tr>
                       );
