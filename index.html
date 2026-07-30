@@ -207,6 +207,7 @@ function generateCommercialiText(validUntil){
 
 function assembleOffertaText(o){
   const parts=[];
+  parts.push(`Buongiorno${o.contactName?' '+o.contactName:''},\n\nSono ad inviarle come da accordi l'offerta strutturata in funzione delle utenze di cui disponete:`);
   if((o.situazioneText||'').trim())parts.push('SITUAZIONE ATTUALE\n'+o.situazioneText.trim());
   if((o.propostaText||'').trim())parts.push('PROPOSTA COMMERCIALE\n'+o.propostaText.trim());
   if((o.economicheText||'').trim())parts.push('CONDIZIONI ECONOMICHE\n'+o.economicheText.trim());
@@ -835,7 +836,8 @@ function OffertaEditor({initial,prefill,clients,leads,services,onClose,onSaved})
     });
   };
 
-  const previewDoc=assembleOffertaText({situazioneText,propostaText,economicheText,commercialiText,ricontattoDate,ricontattoTime,ricontattoType});
+  const contactName=targetType==='cliente'?(clients.find(c=>c.id===clientId)?.contact||''):(leads.find(l=>l.id===leadId)?.contact||'');
+  const previewDoc=assembleOffertaText({situazioneText,propostaText,economicheText,commercialiText,ricontattoDate,ricontattoTime,ricontattoType,contactName});
 
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
@@ -1866,7 +1868,7 @@ function CrmApp({session,onLogout}){
         offerta={sendOffertaTarget}
         defaultEmail={sendOffertaTarget.leadId?(leads.find(l=>l.id===sendOffertaTarget.leadId)?.email||''):(referenti.find(r=>r.clientId===sendOffertaTarget.clientId)?.email||'')}
         defaultSubject={`Offerta commerciale — ${getOffertaTargetLabel(sendOffertaTarget)}`}
-        defaultBody={assembleOffertaText(sendOffertaTarget)}
+        defaultBody={assembleOffertaText({...sendOffertaTarget,contactName:sendOffertaTarget.clientId?(clients.find(c=>c.id===sendOffertaTarget.clientId)?.contact||''):(leads.find(l=>l.id===sendOffertaTarget.leadId)?.contact||'')})}
         onClose={()=>setSendOffertaTarget(null)}
         onSent={()=>{handleOffertaSent(sendOffertaTarget);}}
       />}
