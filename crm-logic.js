@@ -25,6 +25,22 @@
     { category: 'energia', profile: 'Gas', flags: ['axpo'], extra: 'pdr' },
   ];
 
+  // Scheda tecnica per singolo profilo commerciale (sez. 2 dell'offerta — "Proposta commerciale").
+  // Indicizzata per profilo esatto (non per categoria): oggi i profili della stessa categoria
+  // condividono lo stesso elenco come default ragionevole, ma la struttura è già pronta per
+  // differenziare un singolo profilo in futuro senza cambiare la logica, solo questi dati.
+  const FISSA_DEFAULT_FEATURES = ['Chiamate illimitate', 'Modem incluso', 'Backup 5G', 'IP statico', 'Installazione', 'Assistenza'];
+  const MOBILE_DEFAULT_FEATURES = ['Chiamate illimitate', 'SMS illimitati', 'Traffico dati', 'Roaming', 'WiFi Calling', '5G', 'Servizi inclusi'];
+  const PROFILE_FEATURES = {
+    fissa: { FTTH: FISSA_DEFAULT_FEATURES, FTTC: FISSA_DEFAULT_FEATURES, FWA: FISSA_DEFAULT_FEATURES, ADSL: FISSA_DEFAULT_FEATURES },
+    mobile: {
+      '7.99': MOBILE_DEFAULT_FEATURES, '10.00': MOBILE_DEFAULT_FEATURES, '10.99': MOBILE_DEFAULT_FEATURES,
+      '15.99': MOBILE_DEFAULT_FEATURES, '16.99': MOBILE_DEFAULT_FEATURES, '22.99': MOBILE_DEFAULT_FEATURES, '24.99': MOBILE_DEFAULT_FEATURES,
+    },
+    aggiuntivo: {},
+    energia: {},
+  };
+
   // Contatori aggregati calcolati SOLO dai record attivi (sezioni 7/8/13).
   // Ogni flag "di cui" è indipendente: la somma può superare il totale, nessun controllo/blocco.
   function computeServiceCounters(services) {
@@ -113,5 +129,5 @@
     return String(dueDate).slice(0, 10) <= localDateStr();
   }
 
-  return { CATALOG, computeServiceCounters, expandCartToRecords, isSeniorClient, isOpportunityDue, localDateStr };
+  return { CATALOG, PROFILE_FEATURES, computeServiceCounters, expandCartToRecords, isSeniorClient, isOpportunityDue, localDateStr };
 });

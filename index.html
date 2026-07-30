@@ -48,7 +48,7 @@ button{cursor:pointer}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useCallback,useRef}=React;
-const {CATALOG,computeServiceCounters,expandCartToRecords,isSeniorClient,isOpportunityDue,localDateStr}=CrmLogic;
+const {CATALOG,PROFILE_FEATURES,computeServiceCounters,expandCartToRecords,isSeniorClient,isOpportunityDue,localDateStr}=CrmLogic;
 
 const STORAGE_KEY='tim_crm_v2';
 const SESSION_KEY='tim_session';
@@ -124,6 +124,98 @@ function describeServiceFlags(s){
 function flagsList(s){
   const active=Object.keys(FLAG_LABEL).filter(f=>s[f]).map(f=>FLAG_LABEL[f]);
   return active.length?active.join(', '):'—';
+}
+
+/* ── GENERATORE OFFERTE — testo per sezione (sempre modificabile dall'utente) ── */
+const RICONTATTO_TYPE_LABEL={telefonata:'una telefonata',appuntamento:'un appuntamento',videocall:'una videocall',altro:'un contatto'};
+
+function generateSituazioneText(existingServices){
+  const list=existingServices||[];
+  if(!list.length)return '';
+  const lines=[];
+  const fisse=list.filter(s=>s.category==='fissa');
+  if(fisse.length)lines.push(`Impianti di rete fissa: ${fisse.length} (${fisse.map(s=>s.profile).join(', ')})`);
+  const mobili=list.filter(s=>s.category==='mobile');
+  if(mobili.length)lines.push(`Linee mobili: ${mobili.length} (${mobili.map(s=>s.profile).join(', ')})`);
+  const luce=list.filter(s=>s.category==='energia'&&s.profile==='Luce');
+  if(luce.length)lines.push(`Contatori luce: ${luce.length}`);
+  const gas=list.filter(s=>s.category==='energia'&&s.profile==='Gas');
+  if(gas.length)lines.push(`Contatori gas: ${gas.length}`);
+  const priced=list.filter(s=>s.price);
+  if(priced.length)lines.push(`Prezzi attuali: ${priced.map(s=>`${s.profile} € ${s.price}`).join(', ')}`);
+  return lines.join('\n');
+}
+
+function generatePropostaText(rows){
+  const list=rows||[];
+  const blocks=[];
+  const groupBy=(cat)=>{
+    const groups={};
+    list.filter(r=>r.category===cat).forEach(r=>{groups[r.profile]=(groups[r.profile]||0)+Math.max(1,parseInt(r.quantity||1,10));});
+    return groups;
+  };
+  const fissaGroups=groupBy('fissa');
+  if(Object.keys(fissaGroups).length){
+    const elenco=Object.entries(fissaGroups).map(([p,q])=>q>1?`${p} x${q}`:p).join(', ');
+    const bullets=[...new Set(Object.keys(fissaGroups).flatMap(p=>PROFILE_FEATURES.fissa[p]||[]))];
+    blocks.push(`RETE FISSA: ${elenco}\n${bullets.map(b=>`• ${b}`).join('\n')}`);
+  }
+  const mobileGroups=groupBy('mobile');
+  if(Object.keys(mobileGroups).length){
+    const elenco=Object.entries(mobileGroups).map(([p,q])=>q>1?`${p} x${q}`:p).join(', ');
+    const bullets=[...new Set(Object.keys(mobileGroups).flatMap(p=>PROFILE_FEATURES.mobile[p]||[]))];
+    blocks.push(`LINEE MOBILI: ${elenco}\n${bullets.map(b=>`• ${b}`).join('\n')}`);
+  }
+  const aggGroups=groupBy('aggiuntivo');
+  if(Object.keys(aggGroups).length){
+    const elenco=Object.entries(aggGroups).map(([p,q])=>q>1?`${p} x${q}`:p).join(', ');
+    blocks.push(`RETI FISSE PROFILI: ${elenco}`);
+  }
+  const energiaRows=list.filter(r=>r.category==='energia');
+  if(energiaRows.length){
+    const lines=energiaRows.map(r=>{
+      const label=r.profile==='Luce'?`Luce${r.pod?` (POD ${r.pod})`:''}`:`Gas${r.pdr?` (PDR ${r.pdr})`:''}`;
+      return `• ${label}${r.price?`: € ${r.price}/mese`:''}`;
+    });
+    blocks.push(`ENERGIA\n${lines.join('\n')}`);
+  }
+  return blocks.join('\n\n');
+}
+
+function generateEconomicheText(rows,existingServices){
+  const costoMensile=(rows||[]).reduce((s,r)=>s+(r.price?Number(r.price)*Math.max(1,parseInt(r.quantity||1,10)):0),0);
+  const costiAttuali=(existingServices||[]).reduce((s,x)=>s+(x.price?Number(x.price):0),0);
+  const lines=[`Costo mensile della proposta: € ${costoMensile.toFixed(2)}`];
+  if(costiAttuali>0){
+    const risparmioMensile=costiAttuali-costoMensile;
+    lines.push(`Costo mensile attuale: € ${costiAttuali.toFixed(2)}`);
+    lines.push(`Risparmio mensile stimato: € ${risparmioMensile.toFixed(2)}`);
+    lines.push(`Risparmio annuale stimato: € ${(risparmioMensile*12).toFixed(2)}`);
+  }
+  return lines.join('\n');
+}
+
+function generateCommercialiText(validUntil){
+  return [
+    `Offerta valida fino al ${validUntil?fmt(validUntil):'[data da definire]'}.`,
+    'Nessun costo di attivazione. Nessun costo di installazione. Nessun vincolo contrattuale.',
+    'Continuità del servizio garantita durante la portabilità del numero.',
+    'Gestione completa della pratica a cura del nostro team.',
+    'Assistenza dedicata e disponibilità per ogni chiarimento.',
+  ].join('\n');
+}
+
+function assembleOffertaText(o){
+  const parts=[];
+  if((o.situazioneText||'').trim())parts.push('SITUAZIONE ATTUALE\n'+o.situazioneText.trim());
+  if((o.propostaText||'').trim())parts.push('PROPOSTA COMMERCIALE\n'+o.propostaText.trim());
+  if((o.economicheText||'').trim())parts.push('CONDIZIONI ECONOMICHE\n'+o.economicheText.trim());
+  if((o.commercialiText||'').trim())parts.push('CONDIZIONI COMMERCIALI\n'+o.commercialiText.trim());
+  if(o.ricontattoDate){
+    const tipo=RICONTATTO_TYPE_LABEL[o.ricontattoType]||'un contatto';
+    parts.push(`Verrai ricontattato il ${fmt(o.ricontattoDate)}${o.ricontattoTime?` alle ${o.ricontattoTime}`:''} per ${tipo}.`);
+  }
+  return parts.join('\n\n');
 }
 
 /* ── STYLES ───────────────────────────────────── */
@@ -705,36 +797,54 @@ function OpportunitaModal({initial,prefill,clients,leads,onClose,onSaved}){
   );
 }
 
-/* ── OFFERTA MODAL (preventivo — carrello modificabile solo mentre è in bozza) ── */
-function OffertaModal({initial,prefill,clients,leads,onClose,onSaved}){
+/* ── GENERATORE OFFERTE — editor a 5 sezioni sempre modificabili ── */
+function OffertaEditor({initial,prefill,clients,leads,services,onClose,onSaved}){
   const [targetType,setTargetType]=useState(initial?.leadId||prefill?.leadId?'lead':'cliente');
   const [clientId,setClientId]=useState(initial?.clientId||prefill?.clientId||(clients[0]?.id??''));
   const [leadId,setLeadId]=useState(initial?.leadId||prefill?.leadId||(leads[0]?.id??''));
-  const [rows,setRows]=useState(initial?.cart?JSON.parse(initial.cart):[emptyCartRow()]);
-  const [notes,setNotes]=useState(initial?.notes||'');
-  const [err,setErr]=useState('');
-
   const lockTarget=!!(prefill?.clientId||prefill?.leadId||initial);
+
+  const [rows,setRows]=useState(initial?.cart?JSON.parse(initial.cart):[emptyCartRow()]);
+  const getExistingServices=()=>targetType==='cliente'&&clientId?services.filter(s=>s.clientId===clientId):[];
+
+  const [situazioneText,setSituazioneText]=useState(initial?.situazioneText??generateSituazioneText(getExistingServices()));
+  const [propostaText,setPropostaText]=useState(initial?.propostaText??generatePropostaText(rows));
+  const [economicheText,setEconomicheText]=useState(initial?.economicheText??generateEconomicheText(rows,getExistingServices()));
+  const [validUntil,setValidUntil]=useState(initial?.validUntil||'');
+  const [commercialiText,setCommercialiText]=useState(initial?.commercialiText??generateCommercialiText(initial?.validUntil||''));
+  const [notes,setNotes]=useState(initial?.notes||'');
+  const [ricontattoDate,setRicontattoDate]=useState(initial?.ricontattoDate||'');
+  const [ricontattoTime,setRicontattoTime]=useState(initial?.ricontattoTime||'');
+  const [ricontattoType,setRicontattoType]=useState(initial?.ricontattoType||'telefonata');
+  const [ricontattoNotes,setRicontattoNotes]=useState(initial?.ricontattoNotes||'');
+  const [mode,setMode]=useState('modifica');
+  const [err,setErr]=useState('');
 
   const save=()=>{
     if(targetType==='cliente'&&!clientId)return setErr('Seleziona un cliente');
     if(targetType==='lead'&&!leadId)return setErr('Seleziona un lead');
     if(rows.length===0)return setErr('Aggiungi almeno una riga');
+    if(!validUntil)return setErr("Imposta la data di validità dell'offerta");
     onSaved({
       id:initial?.id,
       clientId:targetType==='cliente'?clientId:null,
       leadId:targetType==='lead'?leadId:null,
       cart:JSON.stringify(rows),notes:notes.trim(),
+      situazioneText,propostaText,economicheText,commercialiText,validUntil,
+      ricontattoDate:ricontattoDate||null,ricontattoTime,ricontattoType,ricontattoNotes:ricontattoNotes.trim(),
     });
   };
 
+  const previewDoc=assembleOffertaText({situazioneText,propostaText,economicheText,commercialiText,ricontattoDate,ricontattoTime,ricontattoType});
+
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
-      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:640,maxHeight:'85vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
-          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>{initial?'✏️ Modifica offerta':'💰 Nuova offerta'}</h2>
+      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:720,maxHeight:'90vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>{initial?'✏️ Modifica offerta':'📄 Genera Offerta'}</h2>
           <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
         </div>
+
         <div style={{marginBottom:16}}>
           <label style={S.lbl}>Collegata a</label>
           <div style={{display:'flex',gap:16,marginBottom:8}}>
@@ -757,8 +867,80 @@ function OffertaModal({initial,prefill,clients,leads,onClose,onSaved}){
             </select>
           )}
         </div>
-        <CartRowsEditor rows={rows} setRows={setRows}/>
-        <div style={{marginTop:8}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:60,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Condizioni, validità offerta..."/></div>
+
+        <div style={S.tabBar}>
+          <button style={S.tab(mode==='modifica')} onClick={()=>setMode('modifica')}>✏️ Modifica</button>
+          <button style={S.tab(mode==='anteprima')} onClick={()=>setMode('anteprima')}>👁 Anteprima</button>
+        </div>
+
+        {mode==='anteprima'?(
+          <div style={{whiteSpace:'pre-wrap',background:'#f8fafc',borderRadius:10,padding:16,fontSize:13,lineHeight:1.6,color:'#1a1f2e',marginBottom:16}}>
+            {previewDoc||'Nessun contenuto ancora — compila le sezioni in "Modifica".'}
+          </div>
+        ):(
+          <>
+            <div style={{marginBottom:16}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <label style={S.lbl}>1 · Situazione attuale</label>
+                <button onClick={()=>setSituazioneText(generateSituazioneText(getExistingServices()))} style={{...S.btn('sm'),...S.gho,border:'1.5px solid #e2e8f0'}}>🔄 Rigenera da servizi esistenti</button>
+              </div>
+              <textarea style={{...S.inp,height:80,resize:'vertical'}} value={situazioneText} onChange={e=>setSituazioneText(e.target.value)} placeholder="Servizi già presenti (anche con altro operatore, per confronto)..."/>
+            </div>
+
+            <div style={{marginBottom:8}}>
+              <label style={S.lbl}>2 · Proposta commerciale</label>
+              <CartRowsEditor rows={rows} setRows={setRows}/>
+              <div style={{display:'flex',justifyContent:'flex-end',marginTop:4,marginBottom:6}}>
+                <button onClick={()=>setPropostaText(generatePropostaText(rows))} style={{...S.btn('sm'),...S.gho,border:'1.5px solid #e2e8f0'}}>🔄 Rigenera dai prodotti</button>
+              </div>
+              <textarea style={{...S.inp,height:120,resize:'vertical'}} value={propostaText} onChange={e=>setPropostaText(e.target.value)}/>
+            </div>
+
+            <div style={{marginBottom:16}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <label style={S.lbl}>3 · Condizioni economiche</label>
+                <button onClick={()=>setEconomicheText(generateEconomicheText(rows,getExistingServices()))} style={{...S.btn('sm'),...S.gho,border:'1.5px solid #e2e8f0'}}>🔄 Rigenera</button>
+              </div>
+              <textarea style={{...S.inp,height:90,resize:'vertical'}} value={economicheText} onChange={e=>setEconomicheText(e.target.value)}/>
+            </div>
+
+            <div style={{marginBottom:16}}>
+              <label style={S.lbl}>4 · Condizioni commerciali</label>
+              <div style={{display:'flex',gap:10,alignItems:'flex-end',marginBottom:6}}>
+                <div style={{flex:1}}>
+                  <label style={S.lbl}>Valida fino al *</label>
+                  <input style={S.inp} type="date" value={validUntil} onChange={e=>setValidUntil(e.target.value)}/>
+                </div>
+                <button onClick={()=>setCommercialiText(generateCommercialiText(validUntil))} style={{...S.btn('sm'),...S.gho,border:'1.5px solid #e2e8f0'}}>🔄 Rigenera</button>
+              </div>
+              <textarea style={{...S.inp,height:110,resize:'vertical'}} value={commercialiText} onChange={e=>setCommercialiText(e.target.value)}/>
+            </div>
+
+            <div style={{marginBottom:16}}>
+              <label style={S.lbl}>5 · Ricontatto</label>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:8}}>
+                <div><label style={S.lbl}>Data</label><input style={S.inp} type="date" value={ricontattoDate} onChange={e=>setRicontattoDate(e.target.value)}/></div>
+                <div><label style={S.lbl}>Ora</label><input style={S.inp} type="time" value={ricontattoTime} onChange={e=>setRicontattoTime(e.target.value)}/></div>
+                <div style={{gridColumn:'1/-1'}}>
+                  <label style={S.lbl}>Tipologia</label>
+                  <select style={{...S.inp,cursor:'pointer'}} value={ricontattoType} onChange={e=>setRicontattoType(e.target.value)}>
+                    <option value="telefonata">Telefonata</option>
+                    <option value="appuntamento">Appuntamento</option>
+                    <option value="videocall">Videocall</option>
+                    <option value="altro">Altro</option>
+                  </select>
+                </div>
+              </div>
+              <textarea style={{...S.inp,height:50,resize:'vertical'}} value={ricontattoNotes} onChange={e=>setRicontattoNotes(e.target.value)} placeholder="Note sul ricontatto..."/>
+            </div>
+
+            <div style={{marginBottom:16}}>
+              <label style={S.lbl}>Note interne (non incluse nell'email)</label>
+              <textarea style={{...S.inp,height:50,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)}/>
+            </div>
+          </>
+        )}
+
         {err&&<p style={{color:'#ef4444',fontSize:12,marginTop:10,marginBottom:10}}>{err}</p>}
         <div style={{display:'flex',gap:10,marginTop:16}}>
           <button onClick={save} style={{...S.btn('lg'),...S.suc,flex:1}}>💾 Salva offerta</button>
@@ -1343,11 +1525,16 @@ function CrmApp({session,onLogout}){
     await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'offerte',data:list})});
   };
   const handleOffertaSaved=(o)=>{
+    const sectionFields={
+      cart:o.cart,notes:o.notes,situazioneText:o.situazioneText,propostaText:o.propostaText,
+      economicheText:o.economicheText,commercialiText:o.commercialiText,validUntil:o.validUntil,
+      ricontattoDate:o.ricontattoDate,ricontattoTime:o.ricontattoTime,ricontattoType:o.ricontattoType,ricontattoNotes:o.ricontattoNotes,
+    };
     if(editOfferta){
-      saveOfferte(offerte.map(x=>x.id===o.id?{...x,cart:o.cart,notes:o.notes}:x));
+      saveOfferte(offerte.map(x=>x.id===o.id?{...x,...sectionFields}:x));
       notify('Offerta aggiornata ✓');
     }else{
-      saveOfferte([...offerte,{id:uid(),clientId:o.clientId,leadId:o.leadId,status:'bozza',cart:o.cart,notes:o.notes,createdAt:new Date().toISOString(),sentAt:null,decidedAt:null}]);
+      saveOfferte([...offerte,{id:uid(),clientId:o.clientId,leadId:o.leadId,status:'bozza',...sectionFields,createdAt:new Date().toISOString(),sentAt:null,decidedAt:null}]);
       notify('Offerta creata ✓');
     }
     setOffertaModalOpen(false);setEditOfferta(null);setOffertaPrefill(null);
@@ -1371,6 +1558,24 @@ function CrmApp({session,onLogout}){
   const inviaOfferta=(id)=>{
     saveOfferte(offerte.map(o=>o.id===id?{...o,status:'inviata',sentAt:new Date().toISOString()}:o));
     notify('Offerta inviata ✓');
+  };
+  // Dopo un invio email riuscito: registra la voce in Timeline e crea il ricontatto in agenda (Fase 5).
+  const handleOffertaSent=async(o)=>{
+    inviaOfferta(o.id);
+    const total=getOffertaTotal(o);
+    const nRighe=(()=>{try{return JSON.parse(o.cart||'[]').length;}catch{return 0;}})();
+    const targetId=o.clientId||o.leadId;
+    if(targetId)addTimelineEntry(targetId,'nota',`📧 Offerta inviata (€ ${total.toFixed(2)}, ${nRighe} prodotti) — dettaglio nel tab Offerte`);
+    if(o.ricontattoDate){
+      try{
+        await fetch('/api/appointment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          company:getOffertaTargetLabel(o),date:o.ricontattoDate,time:o.ricontattoTime||'',
+          notes:`Ricontatto (${RICONTATTO_TYPE_LABEL[o.ricontattoType]||o.ricontattoType}): ${o.ricontattoNotes||''}`,
+          clientId:o.clientId||null,leadId:o.leadId||null,
+        })});
+        loadAppointments();
+      }catch(e){notify('Offerta inviata ma ricontatto non creato: '+e.message,'err');}
+    }
   };
   const rifiutaOfferta=(id)=>{
     if(!window.confirm('Segnare questa offerta come rifiutata?'))return;
@@ -1656,20 +1861,14 @@ function CrmApp({session,onLogout}){
       {prospectModalOpen&&<ProspectModal initial={editProspect} onClose={()=>{setProspectModalOpen(false);setEditProspect(null);}} onSaved={handleProspectSaved}/>}
       {leadModalOpen&&<LeadModal initial={editLead} onClose={()=>{setLeadModalOpen(false);setEditLead(null);}} onSaved={handleLeadSaved}/>}
       {oppModalOpen&&<OpportunitaModal initial={editOpp} prefill={oppPrefill} clients={clients} leads={leads} onClose={()=>{setOppModalOpen(false);setEditOpp(null);setOppPrefill(null);}} onSaved={handleOppSaved}/>}
-      {offertaModalOpen&&<OffertaModal initial={editOfferta} prefill={offertaPrefill} clients={clients} leads={leads} onClose={()=>{setOffertaModalOpen(false);setEditOfferta(null);setOffertaPrefill(null);}} onSaved={handleOffertaSaved}/>}
+      {offertaModalOpen&&<OffertaEditor initial={editOfferta} prefill={offertaPrefill} clients={clients} leads={leads} services={services} onClose={()=>{setOffertaModalOpen(false);setEditOfferta(null);setOffertaPrefill(null);}} onSaved={handleOffertaSaved}/>}
       {sendOffertaTarget&&<SendOffertaModal
         offerta={sendOffertaTarget}
         defaultEmail={sendOffertaTarget.leadId?(leads.find(l=>l.id===sendOffertaTarget.leadId)?.email||''):(referenti.find(r=>r.clientId===sendOffertaTarget.clientId)?.email||'')}
         defaultSubject={`Offerta commerciale — ${getOffertaTargetLabel(sendOffertaTarget)}`}
-        defaultBody={(()=>{
-          try{
-            const cart=JSON.parse(sendOffertaTarget.cart||'[]');
-            const righe=cart.map(r=>`- ${CATEGORY_LABEL[r.category]} ${r.profile}${r.quantity>1?` x${r.quantity}`:''}${r.price?` — € ${r.price}`:''}`).join('\n');
-            return `Gentile cliente,\n\nEcco il riepilogo dell'offerta proposta:\n\n${righe}\n\n${sendOffertaTarget.notes?sendOffertaTarget.notes+'\n\n':''}Restiamo a disposizione per ogni chiarimento.`;
-          }catch{return '';}
-        })()}
+        defaultBody={assembleOffertaText(sendOffertaTarget)}
         onClose={()=>setSendOffertaTarget(null)}
-        onSent={()=>{inviaOfferta(sendOffertaTarget.id);}}
+        onSent={()=>{handleOffertaSent(sendOffertaTarget);}}
       />}
       <aside className="sidebar">
         <div className="sidebar-top-row">
@@ -1919,8 +2118,9 @@ function CrmApp({session,onLogout}){
                 <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #f1f5f9",fontSize:13}}><span style={{color:"#64748b"}}>{l}</span><strong>{v}</strong></div>
               ))}
               {sel.notes&&<div style={{marginTop:12,background:"#f8fafc",borderRadius:8,padding:10,fontSize:13,color:"#475569"}}>📝 {sel.notes}</div>}
-              <div style={{display:"flex",gap:8,marginTop:16}}>
+              <div style={{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>
                 <button style={{...S.btn("lg"),...S.pri}} onClick={()=>startEdit(sel)}>✏️ Modifica</button>
+                <button style={{...S.btn("lg"),...S.suc}} onClick={()=>{setOffertaPrefill({clientId:selId});setEditOfferta(null);setOffertaModalOpen(true);}}>📄 Genera Offerta</button>
                 <button style={{...S.btn("lg"),...S.dan}} onClick={()=>handleDelete(sel.id)}>🗑 Elimina</button>
               </div>
             </div>
