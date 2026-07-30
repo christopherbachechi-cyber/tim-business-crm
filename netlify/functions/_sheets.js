@@ -82,6 +82,8 @@ const SCHEMAS = {
     ['createdAt', 'string', 'Creato il'],
     ['googleEventId', 'nullable', 'Google Event ID'],
     ['status', 'string', 'Stato'],
+    ['clientId', 'raw', 'ID Cliente'],
+    ['leadId', 'raw', 'ID Lead'],
   ],
   clients: [
     ['id', 'raw', 'ID'],
@@ -159,6 +161,7 @@ const SCHEMAS = {
   offerte: [
     ['id', 'raw', 'ID'],
     ['clientId', 'raw', 'ID Cliente'],
+    ['leadId', 'raw', 'ID Lead'],
     ['status', 'string', 'Stato'],
     ['cart', 'string', 'Carrello (JSON)'],
     ['notes', 'string', 'Note'],

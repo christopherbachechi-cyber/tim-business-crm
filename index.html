@@ -230,10 +230,10 @@ function LoginScreen({onLogin}){
 
 
 /* ── APPOINTMENT MODAL ──────────────────────────────────────── */
-function AppointmentModal({onClose,onSaved,initialDate}){
-  const [company,setCompany]=useState('');
-  const [contact,setContact]=useState('');
-  const [phone,setPhone]=useState('');
+function AppointmentModal({onClose,onSaved,initialDate,leadId,clientId,prefillContact}){
+  const [company,setCompany]=useState(prefillContact?.company||'');
+  const [contact,setContact]=useState(prefillContact?.contact||'');
+  const [phone,setPhone]=useState(prefillContact?.phone||'');
   const [date,setDate]=useState(initialDate||'');
   const [time,setTime]=useState('');
   const [notes,setNotes]=useState('');
@@ -246,7 +246,7 @@ function AppointmentModal({onClose,onSaved,initialDate}){
     setBusy(true);setErr('');
     try{
       const r=await fetch('/api/appointment',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({company,contactName:contact,phone,date,time,notes})});
+        body:JSON.stringify({company,contactName:contact,phone,date,time,notes,leadId:leadId||null,clientId:clientId||null})});
       let d={};
       try{d=await r.json();}catch{}
       if(!r.ok)return setErr('Errore '+(d.error||r.status||'sconosciuto'));
@@ -701,16 +701,26 @@ function OpportunitaModal({initial,prefill,clients,leads,onClose,onSaved}){
 }
 
 /* ── OFFERTA MODAL (preventivo — carrello modificabile solo mentre è in bozza) ── */
-function OffertaModal({initial,clients,onClose,onSaved}){
-  const [clientId,setClientId]=useState(initial?.clientId||(clients[0]?.id??''));
+function OffertaModal({initial,prefill,clients,leads,onClose,onSaved}){
+  const [targetType,setTargetType]=useState(initial?.leadId||prefill?.leadId?'lead':'cliente');
+  const [clientId,setClientId]=useState(initial?.clientId||prefill?.clientId||(clients[0]?.id??''));
+  const [leadId,setLeadId]=useState(initial?.leadId||prefill?.leadId||(leads[0]?.id??''));
   const [rows,setRows]=useState(initial?.cart?JSON.parse(initial.cart):[emptyCartRow()]);
   const [notes,setNotes]=useState(initial?.notes||'');
   const [err,setErr]=useState('');
 
+  const lockTarget=!!(prefill?.clientId||prefill?.leadId||initial);
+
   const save=()=>{
-    if(!clientId)return setErr('Seleziona un cliente');
+    if(targetType==='cliente'&&!clientId)return setErr('Seleziona un cliente');
+    if(targetType==='lead'&&!leadId)return setErr('Seleziona un lead');
     if(rows.length===0)return setErr('Aggiungi almeno una riga');
-    onSaved({id:initial?.id,clientId,cart:JSON.stringify(rows),notes:notes.trim()});
+    onSaved({
+      id:initial?.id,
+      clientId:targetType==='cliente'?clientId:null,
+      leadId:targetType==='lead'?leadId:null,
+      cart:JSON.stringify(rows),notes:notes.trim(),
+    });
   };
 
   return(
@@ -721,17 +731,73 @@ function OffertaModal({initial,clients,onClose,onSaved}){
           <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
         </div>
         <div style={{marginBottom:16}}>
-          <label style={S.lbl}>Cliente *</label>
-          <select style={{...S.inp,cursor:initial?'default':'pointer'}} value={clientId} disabled={!!initial} onChange={e=>setClientId(e.target.value)}>
-            {clients.length===0&&<option value="">Nessun cliente</option>}
-            {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <label style={S.lbl}>Collegata a</label>
+          <div style={{display:'flex',gap:16,marginBottom:8}}>
+            <label style={{display:'flex',alignItems:'center',gap:6,fontSize:12,cursor:lockTarget?'default':'pointer'}}>
+              <input type="radio" disabled={lockTarget} checked={targetType==='cliente'} onChange={()=>setTargetType('cliente')}/> Cliente esistente
+            </label>
+            <label style={{display:'flex',alignItems:'center',gap:6,fontSize:12,cursor:lockTarget?'default':'pointer'}}>
+              <input type="radio" disabled={lockTarget} checked={targetType==='lead'} onChange={()=>setTargetType('lead')}/> Lead
+            </label>
+          </div>
+          {targetType==='cliente'?(
+            <select style={{...S.inp,cursor:lockTarget?'default':'pointer'}} value={clientId} disabled={lockTarget} onChange={e=>setClientId(e.target.value)}>
+              {clients.length===0&&<option value="">Nessun cliente</option>}
+              {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          ):(
+            <select style={{...S.inp,cursor:lockTarget?'default':'pointer'}} value={leadId} disabled={lockTarget} onChange={e=>setLeadId(e.target.value)}>
+              {leads.length===0&&<option value="">Nessun lead</option>}
+              {leads.map(l=><option key={l.id} value={l.id}>{l.company}</option>)}
+            </select>
+          )}
         </div>
         <CartRowsEditor rows={rows} setRows={setRows}/>
         <div style={{marginTop:8}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:60,resize:'vertical'}} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Condizioni, validità offerta..."/></div>
         {err&&<p style={{color:'#ef4444',fontSize:12,marginTop:10,marginBottom:10}}>{err}</p>}
         <div style={{display:'flex',gap:10,marginTop:16}}>
           <button onClick={save} style={{...S.btn('lg'),...S.suc,flex:1}}>💾 Salva offerta</button>
+          <button onClick={onClose} style={{...S.btn('lg'),...S.gho}}>Annulla</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── INVIO OFFERTA VIA EMAIL (SMTP) ── */
+function SendOffertaModal({offerta,defaultEmail,defaultSubject,defaultBody,onClose,onSent}){
+  const [to,setTo]=useState(defaultEmail||'');
+  const [subject,setSubject]=useState(defaultSubject);
+  const [body,setBody]=useState(defaultBody);
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState('');
+
+  const send=async()=>{
+    if(!to.trim())return setErr('Inserisci un indirizzo email');
+    setBusy(true);setErr('');
+    try{
+      const r=await fetch('/api/send-offerta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to.trim(),subject,text:body})});
+      const d=await r.json();
+      if(!r.ok||!d.ok)return setErr(d.error||'Invio fallito');
+      onSent();
+      onClose();
+    }catch(e){setErr('Errore: '+e.message);}
+    setBusy(false);
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',borderRadius:16,padding:'28px 24px',width:'100%',maxWidth:520,boxShadow:'0 20px 60px rgba(0,0,0,.3)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <h2 style={{fontSize:17,fontWeight:800,color:'#0d1b4b'}}>📧 Invia offerta via email</h2>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#94a3b8'}}>✕</button>
+        </div>
+        <div style={{marginBottom:12}}><label style={S.lbl}>A *</label><input style={S.inp} type="email" value={to} onChange={e=>setTo(e.target.value)} placeholder="email@esempio.it" autoFocus/></div>
+        <div style={{marginBottom:12}}><label style={S.lbl}>Oggetto</label><input style={S.inp} value={subject} onChange={e=>setSubject(e.target.value)}/></div>
+        <div style={{marginBottom:12}}><label style={S.lbl}>Messaggio</label><textarea style={{...S.inp,height:160,resize:'vertical',fontFamily:'monospace',fontSize:12}} value={body} onChange={e=>setBody(e.target.value)}/></div>
+        {err&&<p style={{color:'#ef4444',fontSize:12,marginBottom:10}}>{err}</p>}
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={send} disabled={busy} style={{...S.btn('lg'),...S.suc,flex:1,opacity:busy?.7:1}}>{busy?'Invio...':'📤 Invia email'}</button>
           <button onClick={onClose} style={{...S.btn('lg'),...S.gho}}>Annulla</button>
         </div>
       </div>
@@ -1067,6 +1133,13 @@ function CrmApp({session,onLogout}){
   const [offerteLoading,setOfferteLoading]=useState(true);
   const [offertaModalOpen,setOffertaModalOpen]=useState(false);
   const [editOfferta,setEditOfferta]=useState(null);
+  const [offertaPrefill,setOffertaPrefill]=useState(null);
+  const [sendOffertaTarget,setSendOffertaTarget]=useState(null);
+  const [selLeadId,setSelLeadId]=useState(null);
+  const [leadTab,setLeadTab]=useState("panoramica");
+  useEffect(()=>{setLeadTab("panoramica")},[selLeadId]);
+  const [promotingLead,setPromotingLead]=useState(null);
+  const [leadApptModalOpen,setLeadApptModalOpen]=useState(false);
   const [timeline,setTimeline]=useState([]);
   const [timelineLoading,setTimelineLoading]=useState(true);
   const [noteText,setNoteText]=useState('');
@@ -1210,6 +1283,10 @@ function CrmApp({session,onLogout}){
     if(!window.confirm('Eliminare questo lead?'))return;
     saveLeads(leads.filter(l=>l.id!==id));
     saveOpportunita(opportunita.filter(o=>o.leadId!==id));
+    saveOfferte(offerte.filter(o=>o.leadId!==id));
+    saveAppointments(appointments.filter(a=>a.leadId!==id));
+    saveTimeline(timeline.filter(t=>t.clientId!==id));
+    if(selLeadId===id)setSelLeadId(null);
     notify('Lead eliminato');
   };
   const filteredLeads=leads.filter(l=>{
@@ -1264,11 +1341,22 @@ function CrmApp({session,onLogout}){
       saveOfferte(offerte.map(x=>x.id===o.id?{...x,cart:o.cart,notes:o.notes}:x));
       notify('Offerta aggiornata ✓');
     }else{
-      saveOfferte([...offerte,{id:uid(),clientId:o.clientId,status:'bozza',cart:o.cart,notes:o.notes,createdAt:new Date().toISOString(),sentAt:null,decidedAt:null}]);
+      saveOfferte([...offerte,{id:uid(),clientId:o.clientId,leadId:o.leadId,status:'bozza',cart:o.cart,notes:o.notes,createdAt:new Date().toISOString(),sentAt:null,decidedAt:null}]);
       notify('Offerta creata ✓');
     }
-    setOffertaModalOpen(false);setEditOfferta(null);
+    setOffertaModalOpen(false);setEditOfferta(null);setOffertaPrefill(null);
   };
+  const getOffertaTargetLabel=(o)=>{
+    if(o.clientId){const c=clients.find(x=>x.id===o.clientId);return c?c.name:'Cliente eliminato';}
+    if(o.leadId){
+      const c=clients.find(x=>x.id===o.leadId);
+      if(c)return c.name;
+      const l=leads.find(x=>x.id===o.leadId);
+      return l?l.company:'Lead eliminato';
+    }
+    return '—';
+  };
+  const getEntityRecords=(list,id)=>list.filter(x=>x.clientId===id||x.leadId===id);
   const deleteOfferta=(id)=>{
     if(!window.confirm('Eliminare questa offerta?'))return;
     saveOfferte(offerte.filter(o=>o.id!==id));
@@ -1283,15 +1371,30 @@ function CrmApp({session,onLogout}){
     saveOfferte(offerte.map(o=>o.id===id?{...o,status:'rifiutata',decidedAt:new Date().toISOString()}:o));
     notify('Offerta segnata come rifiutata');
   };
-  const accettaOfferta=async(o)=>{
+  const accettaOfferta=async(o,targetClientId)=>{
     if(!window.confirm('Accettare questa offerta? Verranno generati i servizi corrispondenti sulla scheda cliente.'))return;
+    const clientId=targetClientId||o.clientId;
     const cart=JSON.parse(o.cart||'[]');
-    const newRecords=expandCartToRecords(cart,o.clientId);
+    const newRecords=expandCartToRecords(cart,clientId);
     await saveServices([...services,...newRecords]);
     const summary=newRecords.map(r=>`${r.profile}${describeServiceFlags(r)}`).join(', ');
-    addTimelineEntry(o.clientId,'servizio',`Offerta accettata: aggiunti ${newRecords.length} servizi (${summary})`);
-    await saveOfferte(offerte.map(x=>x.id===o.id?{...x,status:'accettata',decidedAt:new Date().toISOString()}:x));
+    addTimelineEntry(clientId,'servizio',`Offerta accettata: aggiunti ${newRecords.length} servizi (${summary})`);
+    await saveOfferte(offerte.map(x=>x.id===o.id?{...x,status:'accettata',decidedAt:new Date().toISOString(),clientId}:x));
     notify(`Offerta accettata, ${newRecords.length} servizi generati ✓`);
+  };
+  // Click su "Accetta": se esiste già un cliente reale (diretto, o un lead già promosso in precedenza
+  // con lo stesso id) genera subito i Servizi; altrimenti apre "Nuovo cliente" precompilato dal lead,
+  // con il carrello di QUESTA offerta — stessa identica cosa dell'esito "positivo" di un appuntamento.
+  const handleAcceptOfferta=(o)=>{
+    const existingClientId=o.clientId||(clients.some(c=>c.id===o.leadId)?o.leadId:null);
+    if(existingClientId){accettaOfferta(o,existingClientId);return;}
+    const lead=leads.find(l=>l.id===o.leadId);
+    if(!lead)return notify('Lead non trovato','err');
+    setForm({name:lead.company,contact:lead.contact||'',phone:lead.phone||'',contractStart:'',contractEnd:'',notes:lead.notes||'',churnRisk:'basso'});
+    setNewClientCart(JSON.parse(o.cart||'[]'));
+    setEditId(null);
+    setPromotingLead({id:lead.id,offertaId:o.id});
+    setView('form');
   };
   const getOffertaTotal=(o)=>{
     try{return JSON.parse(o.cart||'[]').reduce((sum,r)=>sum+(r.price?Number(r.price)*Math.max(1,parseInt(r.quantity||1,10)):0),0);}catch{return 0;}
@@ -1305,10 +1408,37 @@ function CrmApp({session,onLogout}){
 
   useEffect(()=>{loadAppointments();},[loadAppointments]);
 
+  const saveAppointments=async(list)=>{
+    setAppointments(list);
+    await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'appointments',data:list})});
+  };
+
   const updateAppointmentStatus=async(id,status)=>{
+    const appt=appointments.find(a=>a.id===id);
     const updated=appointments.map(a=>a.id===id?{...a,status}:a);
     setAppointments(updated);
     await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'appointments',data:updated})});
+
+    // Workflow lead: l'esito dell'appuntamento guida le azioni successive solo se collegato a un lead
+    if(appt?.leadId){
+      const lead=leads.find(l=>l.id===appt.leadId);
+      if(lead){
+        addTimelineEntry(appt.leadId,'appuntamento',`Esito appuntamento: ${APPT_STATUS_LABEL[status]||status}`);
+        if(status==='in_valuta'){
+          if(window.confirm("Vuoi preparare e inviare un'offerta per questo lead?")){
+            setOffertaPrefill({leadId:appt.leadId});
+            setEditOfferta(null);
+            setOffertaModalOpen(true);
+          }
+        }else if(status==='positivo'){
+          setForm({name:lead.company,contact:lead.contact||'',phone:lead.phone||'',contractStart:'',contractEnd:'',notes:lead.notes||'',churnRisk:'basso'});
+          setNewClientCart([]);
+          setEditId(null);
+          setPromotingLead({id:lead.id,offertaId:null});
+          setView('form');
+        }
+      }
+    }
   };
 
   const loadProspects=useCallback(async()=>{
@@ -1362,7 +1492,7 @@ function CrmApp({session,onLogout}){
       save(clients.map(c=>c.id===editId?{...form,id:editId}:c));
       notify("Cliente aggiornato ✓");
     } else {
-      const newId=Date.now();
+      const newId=promotingLead?promotingLead.id:Date.now();
       save([...clients,{...form,id:newId}]);
       if(newClientCart.length>0){
         const newRecords=expandCartToRecords(newClientCart,newId);
@@ -1370,9 +1500,17 @@ function CrmApp({session,onLogout}){
         const summary=newRecords.map(r=>`${r.profile}${describeServiceFlags(r)}`).join(', ');
         addTimelineEntry(newId,'servizio',`Aggiunti ${newRecords.length} servizi: ${summary}`);
       }
+      if(promotingLead){
+        saveLeads(leads.filter(l=>l.id!==promotingLead.id));
+        if(promotingLead.offertaId){
+          saveOfferte(offerte.map(o=>o.id===promotingLead.offertaId?{...o,status:'accettata',decidedAt:new Date().toISOString(),clientId:newId}:o));
+        }
+        addTimelineEntry(newId,'nota',`🎯 Lead promosso a cliente: ${form.name}`);
+        setPromotingLead(null);
+      }
       notify("Cliente aggiunto ✓");
     }
-    setEditId(null);setForm(EMPTY);setNewClientCart([]);setView("clienti");
+    setEditId(null);setForm(EMPTY);setNewClientCart([]);setPromotingLead(null);setView("clienti");
   };
   const handleDelete=(id)=>{
     save(clients.filter(c=>c.id!==id));
@@ -1475,7 +1613,21 @@ function CrmApp({session,onLogout}){
       {prospectModalOpen&&<ProspectModal initial={editProspect} onClose={()=>{setProspectModalOpen(false);setEditProspect(null);}} onSaved={handleProspectSaved}/>}
       {leadModalOpen&&<LeadModal initial={editLead} onClose={()=>{setLeadModalOpen(false);setEditLead(null);}} onSaved={handleLeadSaved}/>}
       {oppModalOpen&&<OpportunitaModal initial={editOpp} prefill={oppPrefill} clients={clients} leads={leads} onClose={()=>{setOppModalOpen(false);setEditOpp(null);setOppPrefill(null);}} onSaved={handleOppSaved}/>}
-      {offertaModalOpen&&<OffertaModal initial={editOfferta} clients={clients} onClose={()=>{setOffertaModalOpen(false);setEditOfferta(null);}} onSaved={handleOffertaSaved}/>}
+      {offertaModalOpen&&<OffertaModal initial={editOfferta} prefill={offertaPrefill} clients={clients} leads={leads} onClose={()=>{setOffertaModalOpen(false);setEditOfferta(null);setOffertaPrefill(null);}} onSaved={handleOffertaSaved}/>}
+      {sendOffertaTarget&&<SendOffertaModal
+        offerta={sendOffertaTarget}
+        defaultEmail={sendOffertaTarget.leadId?(leads.find(l=>l.id===sendOffertaTarget.leadId)?.email||''):(referenti.find(r=>r.clientId===sendOffertaTarget.clientId)?.email||'')}
+        defaultSubject={`Offerta commerciale — ${getOffertaTargetLabel(sendOffertaTarget)}`}
+        defaultBody={(()=>{
+          try{
+            const cart=JSON.parse(sendOffertaTarget.cart||'[]');
+            const righe=cart.map(r=>`- ${CATEGORY_LABEL[r.category]} ${r.profile}${r.quantity>1?` x${r.quantity}`:''}${r.price?` — € ${r.price}`:''}`).join('\n');
+            return `Gentile cliente,\n\nEcco il riepilogo dell'offerta proposta:\n\n${righe}\n\n${sendOffertaTarget.notes?sendOffertaTarget.notes+'\n\n':''}Restiamo a disposizione per ogni chiarimento.`;
+          }catch{return '';}
+        })()}
+        onClose={()=>setSendOffertaTarget(null)}
+        onSent={()=>{inviaOfferta(sendOffertaTarget.id);}}
+      />}
       <aside className="sidebar">
         <div className="sidebar-top-row">
           <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1491,7 +1643,7 @@ function CrmApp({session,onLogout}){
           </div>
           <nav style={{display:"flex",flexDirection:"column",marginTop:8}}>
             {mainTabs.map(t=>(
-              <button key={t.k} className={"sidebar-link"+(view===t.k?" active":"")} onClick={()=>{setView(t.k);setSelId(null);setMobileMenuOpen(false);}}>
+              <button key={t.k} className={"sidebar-link"+(view===t.k?" active":"")} onClick={()=>{setView(t.k);setSelId(null);setSelLeadId(null);setMobileMenuOpen(false);}}>
                 <span>{t.l}</span>
                 {t.k==="appuntamenti"&&todayAppts.length>0&&<span style={{marginLeft:"auto",background:"#ef4444",borderRadius:10,padding:"1px 6px",fontSize:10}}>{todayAppts.length}</span>}
               </button>
@@ -1499,7 +1651,7 @@ function CrmApp({session,onLogout}){
           </nav>
           <div className="sidebar-divider"/>
           <nav style={{display:"flex",flexDirection:"column"}}>
-            <button className={"sidebar-link"+(view===prospectTab.k?" active":"")} onClick={()=>{setView(prospectTab.k);setSelId(null);setMobileMenuOpen(false);}}>{prospectTab.l}</button>
+            <button className={"sidebar-link"+(view===prospectTab.k?" active":"")} onClick={()=>{setView(prospectTab.k);setSelId(null);setSelLeadId(null);setMobileMenuOpen(false);}}>{prospectTab.l}</button>
             <a href="/callcenter.html" className="sidebar-link" style={{textDecoration:"none",color:"#4ade80"}} onClick={()=>setMobileMenuOpen(false)}>📞 Call Center</a>
           </nav>
           <div style={{flex:1}}/>
@@ -1855,7 +2007,7 @@ function CrmApp({session,onLogout}){
                 {!timelineLoading&&clientTimeline.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:16,fontSize:13}}>Nessuna voce ancora.</div>}
                 {clientTimeline.map(t=>(
                   <div key={t.id} style={{padding:"8px 0",borderBottom:"1px solid #f8fafc"}}>
-                    <div style={{fontSize:12,color:"#475569"}}>{t.type==='nota'?'📝':'📶'} {t.text}</div>
+                    <div style={{fontSize:12,color:"#475569"}}>{t.type==='nota'?'📝':t.type==='appuntamento'?'🗓':'📶'} {t.text}</div>
                     <div style={{fontSize:10,color:"#94a3b8",marginTop:2}}>{fmt(t.date)} {fmtTime(t.date)} · {t.user}</div>
                   </div>
                 ))}
@@ -1926,7 +2078,7 @@ function CrmApp({session,onLogout}){
           </>
         )}
 
-        {view==="lead"&&(
+        {view==="lead"&&!selLeadId&&(
           <>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
               <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b"}}>🎯 Lead ({filteredLeads.length})</h2>
@@ -1957,13 +2109,13 @@ function CrmApp({session,onLogout}){
                   <thead><tr>{["Azienda","Telefono","Servizio interesse","Stato","Ricontatto",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                   <tbody>
                     {filteredLeads.map(l=>(
-                      <tr key={l.id}>
+                      <tr key={l.id} className="row-hover" style={{cursor:"pointer"}} onClick={()=>setSelLeadId(l.id)}>
                         <td style={S.td}><div style={{fontWeight:700}}>{l.company}</div>{l.contact&&<div style={{fontSize:11,color:"#64748b"}}>{l.contact}</div>}</td>
                         <td style={S.td}>{l.phone}</td>
                         <td style={S.td}>{l.serviceInterest||"—"}</td>
                         <td style={S.td}><span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:LEAD_STATUS_BG[l.status]||"#f1f5f9",color:LEAD_STATUS_COLOR[l.status]||"#64748b"}}>{LEAD_STATUS_LABEL[l.status]||l.status}</span></td>
                         <td style={S.td}>{l.callbackDate?fmt(l.callbackDate):"—"}</td>
-                        <td style={{...S.td,whiteSpace:"nowrap"}}>
+                        <td style={{...S.td,whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
                           <button onClick={()=>{setOppPrefill({leadId:l.id});setEditOpp(null);setOppModalOpen(true);}} style={{...S.btn("sm"),...S.suc,marginRight:8}}>💡</button>
                           <button onClick={()=>{setEditLead(l);setLeadModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
                           <button onClick={()=>deleteLead(l.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
@@ -1977,6 +2129,86 @@ function CrmApp({session,onLogout}){
             )}
           </>
         )}
+
+        {view==="lead"&&selLeadId&&(()=>{
+          const selLead=leads.find(l=>l.id===selLeadId);
+          if(!selLead)return <div style={{...S.card,textAlign:"center",color:"#94a3b8",padding:40}}>Lead non trovato (forse è già stato promosso a cliente).</div>;
+          const leadOfferte=getEntityRecords(offerte,selLeadId);
+          const leadAppuntamenti=getEntityRecords(appointments,selLeadId);
+          return(
+          <>
+            <button style={{...S.btn("sm"),...S.gho,marginBottom:12,paddingLeft:0}} onClick={()=>setSelLeadId(null)}>← Lista</button>
+            {leadApptModalOpen&&<AppointmentModal leadId={selLeadId} prefillContact={{company:selLead.company,contact:selLead.contact,phone:selLead.phone}} onClose={()=>setLeadApptModalOpen(false)} onSaved={()=>{loadAppointments();notify('Appuntamento salvato ✓');}}/>}
+            <div style={S.card}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+                <div><h2 style={{fontSize:20,fontWeight:800,color:"#0d1b4b"}}>{selLead.company}</h2><p style={{fontSize:12,color:"#64748b",marginTop:3}}>{[selLead.contact,selLead.phone].filter(Boolean).join(" · ")}</p></div>
+                <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:LEAD_STATUS_BG[selLead.status]||"#f1f5f9",color:LEAD_STATUS_COLOR[selLead.status]||"#64748b"}}>{LEAD_STATUS_LABEL[selLead.status]||selLead.status}</span>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button style={{...S.btn("lg"),...S.pri}} onClick={()=>{setEditLead(selLead);setLeadModalOpen(true);}}>✏️ Modifica</button>
+                <button style={{...S.btn("lg"),...S.dan}} onClick={()=>deleteLead(selLead.id)}>🗑 Elimina</button>
+              </div>
+            </div>
+
+            <div style={S.tabBar}>
+              {[["panoramica","Panoramica"],["offerte",`Offerte (${leadOfferte.length})`],["appuntamenti",`Appuntamenti (${leadAppuntamenti.length})`]].map(([k,l])=>(
+                <button key={k} style={S.tab(leadTab===k)} onClick={()=>setLeadTab(k)}>{l}</button>
+              ))}
+            </div>
+
+            {leadTab==="panoramica"&&(
+              <div style={S.card}>
+                <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>🎯 Dettagli lead</div>
+                {[["Servizio di interesse",selLead.serviceInterest||"—"],["Ricontatto",selLead.callbackDate?fmt(selLead.callbackDate):"—"],["Motivo ricontatto",selLead.callbackReason||"—"]].map(([l,v])=>(
+                  <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #f1f5f9",fontSize:13}}><span style={{color:"#64748b"}}>{l}</span><strong>{v}</strong></div>
+                ))}
+                {selLead.notes&&<div style={{marginTop:12,background:"#f8fafc",borderRadius:8,padding:10,fontSize:13,color:"#475569"}}>📝 {selLead.notes}</div>}
+              </div>
+            )}
+
+            {leadTab==="offerte"&&(
+              <div style={S.card}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b"}}>💰 Offerte ({leadOfferte.length})</div>
+                  <button onClick={()=>{setOffertaPrefill({leadId:selLeadId});setEditOfferta(null);setOffertaModalOpen(true);}} style={{...S.btn("sm"),...S.suc}}>➕ Nuova Offerta</button>
+                </div>
+                {leadOfferte.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:16,fontSize:13}}>Nessuna offerta per questo lead.</div>}
+                {leadOfferte.map(o=>(
+                  <div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 8px",borderRadius:8,marginBottom:6,background:"#f8fafc"}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:13}}>{OFFER_STATUS_LABEL[o.status]||o.status} — € {getOffertaTotal(o).toFixed(2)}</div>
+                      <div style={{fontSize:12,color:"#64748b"}}>{fmt(o.createdAt)}</div>
+                    </div>
+                    <div style={{whiteSpace:"nowrap"}}>
+                      {o.status==='bozza'&&<>
+                        <button onClick={()=>{setEditOfferta(o);setOffertaModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
+                        <button onClick={()=>setSendOffertaTarget(o)} style={{...S.btn("sm"),...S.suc,marginRight:8}}>📤 Invia</button>
+                        <button onClick={()=>rifiutaOfferta(o.id)} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0",marginRight:8}}>❌</button>
+                      </>}
+                      {o.status==='inviata'&&<>
+                        <button onClick={()=>handleAcceptOfferta(o)} style={{...S.btn("sm"),...S.suc,marginRight:8}}>✅ Accetta</button>
+                        <button onClick={()=>rifiutaOfferta(o.id)} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0",marginRight:8}}>❌</button>
+                      </>}
+                      <button onClick={()=>deleteOfferta(o.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {leadTab==="appuntamenti"&&(
+              <div style={S.card}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b"}}>🗓 Appuntamenti ({leadAppuntamenti.length})</div>
+                  <button onClick={()=>setLeadApptModalOpen(true)} style={{...S.btn("sm"),...S.suc}}>➕ Nuovo Appuntamento</button>
+                </div>
+                {leadAppuntamenti.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:16,fontSize:13}}>Nessun appuntamento per questo lead.</div>}
+                {leadAppuntamenti.map(a=><ApptRow key={a.id} a={a} onStatusChange={updateAppointmentStatus}/>)}
+              </div>
+            )}
+          </>
+          );
+        })()}
 
         {view==="opportunita"&&(
           <>
@@ -2043,15 +2275,14 @@ function CrmApp({session,onLogout}){
               <div style={S.card}>
                 <div style={{overflowX:"auto"}}>
                 <table style={S.tbl}>
-                  <thead><tr>{["Cliente","Righe","Totale","Stato","Creato il",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["Cliente/Lead","Righe","Totale","Stato","Creato il",""].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
                   <tbody>
                     {[...offerte].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(o=>{
-                      const client=clients.find(c=>c.id===o.clientId);
                       const cart=(()=>{try{return JSON.parse(o.cart||'[]');}catch{return [];}})();
                       const total=getOffertaTotal(o);
                       return(
                         <tr key={o.id}>
-                          <td onClick={()=>{setSelId(o.clientId);setView("clienti");}} style={{...S.td,cursor:"pointer",fontWeight:700}}>{client?client.name:'Cliente eliminato'}</td>
+                          <td onClick={()=>{if(o.clientId){setSelId(o.clientId);setView("clienti");}else{setSelLeadId(o.leadId);setView("lead");}}} style={{...S.td,cursor:"pointer",fontWeight:700}}>{getOffertaTargetLabel(o)}</td>
                           <td style={S.td}>{cart.length} {cart.length===1?'riga':'righe'}</td>
                           <td style={S.td}>{total>0?`€ ${total.toFixed(2)}`:"—"}</td>
                           <td style={S.td}><span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:OFFER_STATUS_BG[o.status]||"#f1f5f9",color:OFFER_STATUS_COLOR[o.status]||"#64748b"}}>{OFFER_STATUS_LABEL[o.status]||o.status}</span></td>
@@ -2059,11 +2290,11 @@ function CrmApp({session,onLogout}){
                           <td style={{...S.td,whiteSpace:"nowrap"}}>
                             {o.status==='bozza'&&<>
                               <button onClick={()=>{setEditOfferta(o);setOffertaModalOpen(true);}} style={{...S.btn("sm"),...S.pri,marginRight:8}}>✏️</button>
-                              <button onClick={()=>inviaOfferta(o.id)} style={{...S.btn("sm"),...S.suc,marginRight:8}}>📤 Invia</button>
+                              <button onClick={()=>setSendOffertaTarget(o)} style={{...S.btn("sm"),...S.suc,marginRight:8}}>📤 Invia</button>
                               <button onClick={()=>rifiutaOfferta(o.id)} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0",marginRight:8}}>❌ Rifiuta</button>
                             </>}
                             {o.status==='inviata'&&<>
-                              <button onClick={()=>accettaOfferta(o)} style={{...S.btn("sm"),...S.suc,marginRight:8}}>✅ Accetta</button>
+                              <button onClick={()=>handleAcceptOfferta(o)} style={{...S.btn("sm"),...S.suc,marginRight:8}}>✅ Accetta</button>
                               <button onClick={()=>rifiutaOfferta(o.id)} style={{...S.btn("sm"),...S.gho,border:"1.5px solid #e2e8f0",marginRight:8}}>❌ Rifiuta</button>
                             </>}
                             <button onClick={()=>deleteOfferta(o.id)} style={{...S.btn("sm"),...S.dan}}>🗑</button>
@@ -2224,7 +2455,7 @@ function CrmApp({session,onLogout}){
               <div style={{marginBottom:16}}><label style={S.lbl}>Note</label><textarea style={{...S.inp,height:70,resize:"vertical"}} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Note sul cliente..."/></div>
               <div style={{display:"flex",gap:10}}>
                 <button style={{...S.btn("lg"),...S.pri}} onClick={handleSave}>💾 Salva</button>
-                <button style={{...S.btn("lg"),...S.gho}} onClick={()=>{setEditId(null);setForm(EMPTY);setNewClientCart([]);setView("clienti");}}>Annulla</button>
+                <button style={{...S.btn("lg"),...S.gho}} onClick={()=>{setEditId(null);setForm(EMPTY);setNewClientCart([]);setPromotingLead(null);setView(promotingLead?"lead":"clienti");}}>Annulla</button>
               </div>
             </div>
 

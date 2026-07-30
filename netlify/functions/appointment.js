@@ -11,7 +11,7 @@ exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: H, body: '' };
 
   try {
-    const { company, contactName, phone, date, time, notes, callSid } = JSON.parse(event.body || '{}');
+    const { company, contactName, phone, date, time, notes, callSid, clientId, leadId } = JSON.parse(event.body || '{}');
     if (!company || !date) {
       return { statusCode: 400, headers: H, body: JSON.stringify({ error: 'Azienda e data obbligatori' }) };
     }
@@ -21,6 +21,7 @@ exports.handler = async (event) => {
       company, contactName: contactName||'', phone: phone||'',
       date, time: time||'', notes: notes||'', callSid: callSid||'',
       createdAt: new Date().toISOString(), googleEventId: null, status: 'in_valuta',
+      clientId: clientId||null, leadId: leadId||null,
     };
 
     // ── Save to Sheets ────────────────────────────────────────────
