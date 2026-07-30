@@ -85,6 +85,11 @@ function firstOfMonthStr(s){return s.slice(0,7)+"-01";}
 function addMonthsStr(s,n){const dt=parseLocalDate(firstOfMonthStr(s));dt.setMonth(dt.getMonth()+n);return localDateStr(dt);}
 function daysInMonthOf(s){const[y,m]=s.split("-").map(Number);return new Date(y,m,0).getDate();}
 function monthLabel(ym){const[y,m]=ym.split("-");return`${MONTH_NAMES[Number(m)-1]} ${y}`}
+function periodKeyOf(dateStr,granularity){
+  const d=parseLocalDate(dateStr);
+  if(granularity==='anno')return String(d.getFullYear());
+  return `${d.getFullYear()}-T${Math.floor(d.getMonth()/3)+1}`;
+}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 
 /* ── ANAGRAFICA CALL CENTER (contatti/prospect, separati dai Clienti) ── */
@@ -1069,6 +1074,7 @@ function CrmApp({session,onLogout}){
   const [localBackup,setLocalBackup]=useState(null);
   const [view,setView]=useState("dashboard");
   const [dashboardMonth,setDashboardMonth]=useState(todayStr().slice(0,7));
+  const [reportGranularity,setReportGranularity]=useState("trimestre");
   const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
   const [selId,setSelId]=useState(null);
   const [clientTab,setClientTab]=useState("panoramica");
@@ -1493,7 +1499,7 @@ function CrmApp({session,onLogout}){
       notify("Cliente aggiornato ✓");
     } else {
       const newId=promotingLead?promotingLead.id:Date.now();
-      save([...clients,{...form,id:newId}]);
+      save([...clients,{...form,id:newId,convertedFromLead:!!promotingLead}]);
       if(newClientCart.length>0){
         const newRecords=expandCartToRecords(newClientCart,newId);
         saveServices([...services,...newRecords]);
@@ -1591,7 +1597,44 @@ function CrmApp({session,onLogout}){
     XLSX.writeFile(wb,`appuntamenti_${todayStr()}.xlsx`);
   };
 
-  const TABS=[{k:"dashboard",l:"📊 Dashboard"},{k:"clienti",l:"👥 Clienti"},{k:"prospect",l:"📇 Anagrafica Call Center"},{k:"lead",l:"🎯 Lead"},{k:"opportunita",l:"💡 Opportunità"},{k:"offerte",l:"💰 Offerte"},{k:"scadenze",l:"📅 Scadenze"},{k:"appuntamenti",l:"🗓 Appuntamenti"}];
+  /* ── Report e statistiche ── */
+  const totalRevenue=services.reduce((s,x)=>s+(x.price?Number(x.price):0),0);
+  const revenueByMonthData={
+    labels:monthlyTrendMonths.map(m=>monthLabel(m)),
+    datasets:[{label:'Fatturato (€)',data:monthlyTrendMonths.map(m=>services.filter(s=>s.saleDate&&s.saleDate.slice(0,7)===m).reduce((s,x)=>s+(x.price?Number(x.price):0),0)),borderColor:'#22c55e',backgroundColor:'rgba(34,197,94,.12)',fill:true,tension:.3}],
+  };
+  const revenueByClient={};
+  services.forEach(s=>{if(s.price){revenueByClient[s.clientId]=(revenueByClient[s.clientId]||0)+Number(s.price);}});
+  const topClientsByRevenue=Object.entries(revenueByClient)
+    .map(([clientId,total])=>({clientId,total,name:clients.find(c=>c.id===clientId)?.name||'Cliente eliminato'}))
+    .sort((a,b)=>b.total-a.total).slice(0,10);
+
+  const convertedClientsCount=clients.filter(c=>c.convertedFromLead).length;
+  const leadConversionRate=(convertedClientsCount+leads.length)>0?(convertedClientsCount/(convertedClientsCount+leads.length))*100:null;
+
+  const offerAccettate=offerte.filter(o=>o.status==='accettata').length;
+  const offerRifiutate=offerte.filter(o=>o.status==='rifiutata').length;
+  const offerPending=offerte.filter(o=>o.status==='bozza'||o.status==='inviata').length;
+  const offerDecise=offerAccettate+offerRifiutate;
+  const offerAcceptRate=offerDecise>0?(offerAccettate/offerDecise)*100:null;
+
+  const reportPeriods=[...new Set(services.filter(s=>s.saleDate).map(s=>periodKeyOf(s.saleDate,reportGranularity)))].sort();
+  const portfolioByPeriodData={
+    labels:reportPeriods,
+    datasets:[
+      {label:'Linee fisse',backgroundColor:'#3b82f6',data:reportPeriods.map(p=>computeServiceCounters(services.filter(s=>s.saleDate&&periodKeyOf(s.saleDate,reportGranularity)===p)).retiFisseTotale)},
+      {label:'Linee mobili',backgroundColor:'#22c55e',data:reportPeriods.map(p=>computeServiceCounters(services.filter(s=>s.saleDate&&periodKeyOf(s.saleDate,reportGranularity)===p)).mobiliTotale)},
+      {label:'Linee profili',backgroundColor:'#f59e0b',data:reportPeriods.map(p=>{const c=computeServiceCounters(services.filter(s=>s.saleDate&&periodKeyOf(s.saleDate,reportGranularity)===p));return c.tce+c.trunk+c.timComunica;})},
+      {label:'Energia',backgroundColor:'#8b5cf6',data:reportPeriods.map(p=>{const c=computeServiceCounters(services.filter(s=>s.saleDate&&periodKeyOf(s.saleDate,reportGranularity)===p));return c.pod+c.pdr;})},
+    ],
+  };
+
+  const expiring30=clients.filter(c=>{const d=daysUntil(c.contractEnd);return d>=0&&d<=30;});
+  const expiring60=clients.filter(c=>{const d=daysUntil(c.contractEnd);return d>30&&d<=60;});
+  const expiring90=clients.filter(c=>{const d=daysUntil(c.contractEnd);return d>60&&d<=90;});
+  const expiringValueAtRisk=[...expiring30,...expiring60,...expiring90].reduce((sum,c)=>sum+getClientServices(c.id).reduce((s,x)=>s+(x.price?Number(x.price):0),0),0);
+
+  const TABS=[{k:"dashboard",l:"📊 Dashboard"},{k:"clienti",l:"👥 Clienti"},{k:"prospect",l:"📇 Anagrafica Call Center"},{k:"lead",l:"🎯 Lead"},{k:"opportunita",l:"💡 Opportunità"},{k:"offerte",l:"💰 Offerte"},{k:"scadenze",l:"📅 Scadenze"},{k:"appuntamenti",l:"🗓 Appuntamenti"},{k:"report",l:"📈 Report"}];
 
   const FSel=({label,fkey,opts})=>(
     <div>
@@ -2435,6 +2478,75 @@ function CrmApp({session,onLogout}){
           </>
           );
         })()}
+
+        {view==="report"&&(
+          <>
+            <h2 style={{fontSize:18,fontWeight:800,color:"#0d1b4b",marginBottom:14}}>📈 Report e statistiche</h2>
+
+            <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:14}}>
+              <div style={{...S.card,flex:"1 1 200px",marginBottom:0}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Fatturato totale</div>
+                <div style={{fontSize:26,fontWeight:800,color:"#22c55e"}}>€ {totalRevenue.toFixed(2)}</div>
+              </div>
+              <div style={{...S.card,flex:"1 1 200px",marginBottom:0}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Conversione Lead → Cliente</div>
+                <div style={{fontSize:26,fontWeight:800,color:"#3b82f6"}}>{leadConversionRate===null?"—":`${leadConversionRate.toFixed(0)}%`}</div>
+                <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>{convertedClientsCount} convertiti · {leads.length} attivi</div>
+              </div>
+              <div style={{...S.card,flex:"1 1 200px",marginBottom:0}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",marginBottom:6}}>Offerte accettate</div>
+                <div style={{fontSize:26,fontWeight:800,color:"#8b5cf6"}}>{offerAcceptRate===null?"—":`${offerAcceptRate.toFixed(0)}%`}</div>
+                <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>{offerAccettate} accettate · {offerRifiutate} rifiutate · {offerPending} in corso</div>
+              </div>
+            </div>
+
+            {monthlyTrendMonths.length>0&&(
+              <div style={S.card}>
+                <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>📈 Andamento fatturato mensile</div>
+                <ChartCanvas type="line" data={revenueByMonthData}/>
+              </div>
+            )}
+
+            <div style={S.card}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+                <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b"}}>📊 Composizione portafoglio per periodo</div>
+                <div style={{display:"flex",background:"#f1f5f9",borderRadius:9,padding:3}}>
+                  <button onClick={()=>setReportGranularity("trimestre")} style={{...S.btn("sm"),...(reportGranularity==="trimestre"?S.pri:{background:"transparent",color:"#64748b"})}}>Trimestre</button>
+                  <button onClick={()=>setReportGranularity("anno")} style={{...S.btn("sm"),...(reportGranularity==="anno"?S.pri:{background:"transparent",color:"#64748b"})}}>Anno</button>
+                </div>
+              </div>
+              {reportPeriods.length===0?(
+                <div style={{textAlign:"center",color:"#94a3b8",padding:20,fontSize:13}}>Nessun dato disponibile.</div>
+              ):(
+                <ChartCanvas type="bar" data={portfolioByPeriodData} options={{scales:{x:{stacked:true},y:{stacked:true}}}}/>
+              )}
+            </div>
+
+            <div style={S.card}>
+              <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>🏆 Top 10 clienti per fatturato</div>
+              {topClientsByRevenue.length===0&&<div style={{textAlign:"center",color:"#94a3b8",padding:20,fontSize:13}}>Nessun servizio con prezzo registrato.</div>}
+              {topClientsByRevenue.map((c,i)=>(
+                <div key={c.clientId} className="row-hover" style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 8px",borderBottom:"1px solid #f8fafc",cursor:"pointer"}} onClick={()=>{setSelId(c.clientId);setView("clienti");}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:12,fontWeight:800,color:"#94a3b8",width:20}}>{i+1}</span>
+                    <span style={{fontWeight:700,fontSize:13}}>{c.name}</span>
+                  </div>
+                  <span style={{fontWeight:800,fontSize:14,color:"#22c55e"}}>€ {c.total.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={S.card}>
+              <div style={{fontSize:14,fontWeight:800,color:"#0d1b4b",marginBottom:12}}>⏰ Scadenze contrattuali imminenti</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:12}}>
+                <div style={{background:"#fef2f2",borderRadius:8,padding:12,textAlign:"center"}}><div style={{fontSize:22,fontWeight:800,color:"#ef4444"}}>{expiring30.length}</div><div style={{fontSize:11,color:"#64748b"}}>entro 30gg</div></div>
+                <div style={{background:"#fffbeb",borderRadius:8,padding:12,textAlign:"center"}}><div style={{fontSize:22,fontWeight:800,color:"#f59e0b"}}>{expiring60.length}</div><div style={{fontSize:11,color:"#64748b"}}>31-60gg</div></div>
+                <div style={{background:"#f0f9ff",borderRadius:8,padding:12,textAlign:"center"}}><div style={{fontSize:22,fontWeight:800,color:"#3b82f6"}}>{expiring90.length}</div><div style={{fontSize:11,color:"#64748b"}}>61-90gg</div></div>
+              </div>
+              <div style={{fontSize:12,color:"#64748b"}}>Fatturato servizi attivi dei clienti in scadenza entro 90 giorni: <strong style={{color:"#0d1b4b"}}>€ {expiringValueAtRisk.toFixed(2)}</strong></div>
+            </div>
+          </>
+        )}
 
         {view==="form"&&(
           <>

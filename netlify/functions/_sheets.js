@@ -95,6 +95,7 @@ const SCHEMAS = {
     ['notes', 'string', 'Note'],
     ['churnRisk', 'string', 'Rischio churn'],
     ['driveFolderId', 'raw', 'ID Cartella Drive'],
+    ['convertedFromLead', 'boolean', 'Convertito da Lead'],
   ],
   services: [
     ['id', 'raw', 'ID'],
