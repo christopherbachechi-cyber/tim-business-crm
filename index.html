@@ -129,20 +129,30 @@ function flagsList(s){
 /* ── GENERATORE OFFERTE — testo per sezione (sempre modificabile dall'utente) ── */
 const RICONTATTO_TYPE_LABEL={telefonata:'una telefonata',appuntamento:'un appuntamento',videocall:'una videocall',altro:'un contatto'};
 
-function generateSituazioneText(existingServices){
+function sumServicePrices(list){return (list||[]).reduce((s,x)=>s+(x.price?Number(x.price):0),0);}
+
+function generateSituazioneText(existingServices,costiAttuali){
   const list=existingServices||[];
-  if(!list.length)return '';
   const lines=[];
   const fisse=list.filter(s=>s.category==='fissa');
-  if(fisse.length)lines.push(`Impianti di rete fissa: ${fisse.length} (${fisse.map(s=>s.profile).join(', ')})`);
+  if(fisse.length){
+    const groups={};
+    fisse.forEach(s=>{const k=s.casa?'Casa':'Ufficio';groups[k]=(groups[k]||0)+1;});
+    const detail=Object.entries(groups).map(([k,n])=>`${n} ${k}`).join(', ');
+    lines.push(`Impianti di rete fissa: ${fisse.length} (${detail})`);
+  }
   const mobili=list.filter(s=>s.category==='mobile');
-  if(mobili.length)lines.push(`Linee mobili: ${mobili.length} (${mobili.map(s=>s.profile).join(', ')})`);
+  if(mobili.length){
+    const groups={};
+    mobili.forEach(s=>{const k=s.soloDati?'Dati':'Mobili';groups[k]=(groups[k]||0)+1;});
+    const detail=Object.entries(groups).map(([k,n])=>`${n} ${k}`).join(', ');
+    lines.push(`Linee mobili: ${mobili.length} (${detail})`);
+  }
   const luce=list.filter(s=>s.category==='energia'&&s.profile==='Luce');
   if(luce.length)lines.push(`Contatori luce: ${luce.length}`);
   const gas=list.filter(s=>s.category==='energia'&&s.profile==='Gas');
   if(gas.length)lines.push(`Contatori gas: ${gas.length}`);
-  const priced=list.filter(s=>s.price);
-  if(priced.length)lines.push(`Prezzi attuali: ${priced.map(s=>`${s.profile} € ${s.price}`).join(', ')}`);
+  if(Number(costiAttuali)>0)lines.push(`Prezzi attuali: € ${Number(costiAttuali).toFixed(2)}/mese`);
   return lines.join('\n');
 }
 
@@ -182,13 +192,13 @@ function generatePropostaText(rows){
   return blocks.join('\n\n');
 }
 
-function generateEconomicheText(rows,existingServices){
+function generateEconomicheText(rows,costiAttuali){
   const costoMensile=(rows||[]).reduce((s,r)=>s+(r.price?Number(r.price)*Math.max(1,parseInt(r.quantity||1,10)):0),0);
-  const costiAttuali=(existingServices||[]).reduce((s,x)=>s+(x.price?Number(x.price):0),0);
+  const attuale=Number(costiAttuali)||0;
   const lines=[`Costo mensile della proposta: € ${costoMensile.toFixed(2)}`];
-  if(costiAttuali>0){
-    const risparmioMensile=costiAttuali-costoMensile;
-    lines.push(`Costo mensile attuale: € ${costiAttuali.toFixed(2)}`);
+  if(attuale>0){
+    const risparmioMensile=attuale-costoMensile;
+    lines.push(`Costo mensile attuale: € ${attuale.toFixed(2)}`);
     lines.push(`Risparmio mensile stimato: € ${risparmioMensile.toFixed(2)}`);
     lines.push(`Risparmio annuale stimato: € ${(risparmioMensile*12).toFixed(2)}`);
   }
@@ -808,9 +818,10 @@ function OffertaEditor({initial,prefill,clients,leads,services,onClose,onSaved})
   const [rows,setRows]=useState(initial?.cart?JSON.parse(initial.cart):[emptyCartRow()]);
   const getExistingServices=()=>targetType==='cliente'&&clientId?services.filter(s=>s.clientId===clientId):[];
 
-  const [situazioneText,setSituazioneText]=useState(initial?.situazioneText??generateSituazioneText(getExistingServices()));
+  const [costiAttuali,setCostiAttuali]=useState(initial?.costiAttuali??(sumServicePrices(getExistingServices())||''));
+  const [situazioneText,setSituazioneText]=useState(initial?.situazioneText??generateSituazioneText(getExistingServices(),costiAttuali));
   const [propostaText,setPropostaText]=useState(initial?.propostaText??generatePropostaText(rows));
-  const [economicheText,setEconomicheText]=useState(initial?.economicheText??generateEconomicheText(rows,getExistingServices()));
+  const [economicheText,setEconomicheText]=useState(initial?.economicheText??generateEconomicheText(rows,costiAttuali));
   const [validUntil,setValidUntil]=useState(initial?.validUntil||'');
   const [commercialiText,setCommercialiText]=useState(initial?.commercialiText??generateCommercialiText(initial?.validUntil||''));
   const [notes,setNotes]=useState(initial?.notes||'');
@@ -831,7 +842,7 @@ function OffertaEditor({initial,prefill,clients,leads,services,onClose,onSaved})
       clientId:targetType==='cliente'?clientId:null,
       leadId:targetType==='lead'?leadId:null,
       cart:JSON.stringify(rows),notes:notes.trim(),
-      situazioneText,propostaText,economicheText,commercialiText,validUntil,
+      situazioneText,propostaText,economicheText,commercialiText,validUntil,costiAttuali:costiAttuali||null,
       ricontattoDate:ricontattoDate||null,ricontattoTime,ricontattoType,ricontattoNotes:ricontattoNotes.trim(),
     });
   };
@@ -884,9 +895,13 @@ function OffertaEditor({initial,prefill,clients,leads,services,onClose,onSaved})
             <div style={{marginBottom:16}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 <label style={S.lbl}>1 · Situazione attuale</label>
-                <button onClick={()=>setSituazioneText(generateSituazioneText(getExistingServices()))} style={{...S.btn('sm'),...S.gho,border:'1.5px solid #e2e8f0'}}>🔄 Rigenera da servizi esistenti</button>
+                <button onClick={()=>{const es=getExistingServices();const tot=sumServicePrices(es);setCostiAttuali(tot||'');setSituazioneText(generateSituazioneText(es,tot));}} style={{...S.btn('sm'),...S.gho,border:'1.5px solid #e2e8f0'}}>🔄 Rigenera da servizi esistenti</button>
               </div>
               <textarea style={{...S.inp,height:80,resize:'vertical'}} value={situazioneText} onChange={e=>setSituazioneText(e.target.value)} placeholder="Servizi già presenti (anche con altro operatore, per confronto)..."/>
+              <div style={{marginTop:8,maxWidth:220}}>
+                <label style={S.lbl}>Spesa mensile attuale (€)</label>
+                <input style={S.inp} type="number" step="0.01" value={costiAttuali} onChange={e=>setCostiAttuali(e.target.value)} placeholder="0.00"/>
+              </div>
             </div>
 
             <div style={{marginBottom:8}}>
@@ -901,7 +916,7 @@ function OffertaEditor({initial,prefill,clients,leads,services,onClose,onSaved})
             <div style={{marginBottom:16}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 <label style={S.lbl}>3 · Condizioni economiche</label>
-                <button onClick={()=>setEconomicheText(generateEconomicheText(rows,getExistingServices()))} style={{...S.btn('sm'),...S.gho,border:'1.5px solid #e2e8f0'}}>🔄 Rigenera</button>
+                <button onClick={()=>setEconomicheText(generateEconomicheText(rows,costiAttuali))} style={{...S.btn('sm'),...S.gho,border:'1.5px solid #e2e8f0'}}>🔄 Rigenera</button>
               </div>
               <textarea style={{...S.inp,height:90,resize:'vertical'}} value={economicheText} onChange={e=>setEconomicheText(e.target.value)}/>
             </div>
@@ -1531,6 +1546,7 @@ function CrmApp({session,onLogout}){
       cart:o.cart,notes:o.notes,situazioneText:o.situazioneText,propostaText:o.propostaText,
       economicheText:o.economicheText,commercialiText:o.commercialiText,validUntil:o.validUntil,
       ricontattoDate:o.ricontattoDate,ricontattoTime:o.ricontattoTime,ricontattoType:o.ricontattoType,ricontattoNotes:o.ricontattoNotes,
+      costiAttuali:o.costiAttuali,
     };
     if(editOfferta){
       saveOfferte(offerte.map(x=>x.id===o.id?{...x,...sectionFields}:x));

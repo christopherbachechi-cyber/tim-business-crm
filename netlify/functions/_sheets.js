@@ -178,6 +178,7 @@ const SCHEMAS = {
     ['ricontattoTime', 'string', 'Ricontatto ora'],
     ['ricontattoType', 'string', 'Ricontatto tipologia'],
     ['ricontattoNotes', 'string', 'Ricontatto note'],
+    ['costiAttuali', 'nullable', 'Spesa mensile attuale (€)'],
   ],
 };
 
