@@ -96,6 +96,7 @@ const SCHEMAS = {
     ['churnRisk', 'string', 'Rischio churn'],
     ['driveFolderId', 'raw', 'ID Cartella Drive'],
     ['convertedFromLead', 'boolean', 'Convertito da Lead'],
+    ['piva', 'string', 'Partita IVA'],
   ],
   services: [
     ['id', 'raw', 'ID'],
@@ -147,6 +148,7 @@ const SCHEMAS = {
     ['callbackReason', 'string', 'Motivo ricontatto'],
     ['notes', 'string', 'Note'],
     ['status', 'string', 'Stato'],
+    ['piva', 'string', 'Partita IVA'],
   ],
   opportunita: [
     ['id', 'raw', 'ID'],
