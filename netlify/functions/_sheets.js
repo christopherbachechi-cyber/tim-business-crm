@@ -182,6 +182,31 @@ const SCHEMAS = {
     ['ricontattoNotes', 'string', 'Ricontatto note'],
     ['costiAttuali', 'nullable', 'Spesa mensile attuale (€)'],
   ],
+  reminderTemplates: [
+    ['id', 'raw', 'ID'],
+    ['name', 'string', 'Nome modello'],
+    ['subject', 'string', 'Oggetto'],
+    ['body', 'string', 'Corpo'],
+    ['attachments', 'string', 'Allegati (JSON)'],
+    ['createdAt', 'string', 'Creato il'],
+  ],
+  reminders: [
+    ['id', 'raw', 'ID'],
+    ['clientId', 'raw', 'ID Cliente'],
+    ['leadId', 'raw', 'ID Lead'],
+    ['templateId', 'raw', 'ID Modello'],
+    ['toEmail', 'string', 'Email destinatario'],
+    ['subject', 'string', 'Oggetto'],
+    ['body', 'string', 'Corpo'],
+    ['attachments', 'string', 'Allegati (JSON)'],
+    ['sendDate', 'string', 'Data invio'],
+    ['sendTime', 'string', 'Ora invio'],
+    ['status', 'string', 'Stato'],
+    ['createdAt', 'string', 'Creato il'],
+    ['sentAt', 'nullable', 'Inviato il'],
+    ['errorMessage', 'nullable', 'Errore'],
+    ['notes', 'string', 'Note interne'],
+  ],
 };
 
 function isListType(tabName) {

@@ -1,5 +1,5 @@
 const { sheetsReadList, sheetsWriteList } = require('./_sheets');
-const { google } = require('googleapis');
+const { getDrive, findOrCreateRootFolder } = require('./_drive');
 const { Readable } = require('stream');
 
 const H = {
@@ -9,37 +9,6 @@ const H = {
 };
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024; // 4MB — il body delle Netlify Functions ha un tetto ~6MB e il base64 gonfia la dimensione di ~33%
-const ROOT_FOLDER_NAME = 'TIM Business CRM - Documenti';
-
-// Drive con l'identità reale dell'utente (OAuth, scope drive.file), non il service account:
-// un service account non ha quota per CREARE file su un Drive personale (solo su Drive condivisi,
-// che richiedono Google Workspace). Sheets/Calendar restano invece sul service account, che opera
-// su risorse già esistenti e non ha questo vincolo.
-async function getDrive() {
-  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
-  const refreshToken = process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
-  if (!clientId || !clientSecret || !refreshToken) return null;
-  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-  oauth2Client.setCredentials({ refresh_token: refreshToken });
-  return google.drive({ version: 'v3', auth: oauth2Client });
-}
-
-// Trova (o crea, la prima volta) la cartella radice dell'app — nessun ID fisso da configurare:
-// creata dall'app stessa sotto scope drive.file, quindi visibile solo a lei.
-async function findOrCreateRootFolder(drive) {
-  const found = await drive.files.list({
-    q: `name='${ROOT_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    fields: 'files(id)',
-    pageSize: 1,
-  });
-  if (found.data.files && found.data.files.length > 0) return found.data.files[0].id;
-  const created = await drive.files.create({
-    requestBody: { name: ROOT_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' },
-    fields: 'id',
-  });
-  return created.data.id;
-}
 
 // Crea la cartella del cliente al primo upload (non alla creazione del cliente) e la ricorda su Sheets
 async function findOrCreateClientFolder(drive, client) {
